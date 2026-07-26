@@ -1,0 +1,281 @@
+# docs.yml — swarm docs-stage reusable workflow (workflow_call)
+#
+# v1 simplification note: the docs agent is a decision role (audit-only).
+# It emits verdict + evidence describing what should be documented; it does NOT
+# directly commit or open a docs PR. Any resulting documentation changes land
+# via a normal human-authored or automation PR in a follow-up workflow (v1.1).
+# This workflow posts the docs summary as an issue comment and transitions the
+# issue to swarm:done.
+#
+# Caller-input surface:
+#   issue          (number, required)                Issue number being documented.
+#   pr             (number, required)                Merged PR number.
+#   runner-label   (string, default: swarm-agent)    Runner label for the agent job. Glue jobs use ubuntu-latest.
+#   dry-run        (boolean, default: false)          When true, logs all intended mutations without executing any writes.
+#   adapter        (string, default: claude)          Agent adapter forwarded to agent-run.
+#   model          (string, default: "")              LLM model identifier set as SWARM_LLM_MODEL.
+#   enabled-sinks  (string, default: "")              Comma-separated notify sinks passthrough.
+#   buzz-channel   (string, default: "")              Buzz/Nostr channel UUID passthrough.
+#
+# Routing per SPEC §2.1:
+#   verdict=done    → post docs summary comment → transition swarm:docs → swarm:done → close issue → notify
+#   verdict=skipped → skipped-reason enforcement (exit 1 if evidence.reason empty/absent)
+#                   → post skipped comment → transition swarm:docs → swarm:done → close issue → notify
+#
+# Permissions per job:
+#   agent job : contents: read, issues: read  (checkout + gh issue view)
+#   glue job  : contents: read, issues: write (post comment, transition, close)
+
+on:
+  workflow_call:
+    inputs:
+      issue:
+        description: Issue number being documented.
+        required: true
+        type: number
+      pr:
+        description: Merged PR number.
+        required: true
+        type: number
+      runner-label:
+        description: Runner label for the agent job. Glue jobs always use ubuntu-latest.
+        required: false
+        type: string
+        default: swarm-agent
+      dry-run:
+        description: When true, log intended mutations without executing them.
+        required: false
+        type: boolean
+        default: false
+      adapter:
+        description: Agent adapter (claude or openai-compat).
+        required: false
+        type: string
+        default: claude
+      model:
+        description: LLM model identifier set as SWARM_LLM_MODEL. Consumed by openai-compat; ignored by claude.
+        required: false
+        type: string
+        default: ""
+      enabled-sinks:
+        description: Comma-separated notify sinks passthrough (slack,buzz,discord,teams).
+        required: false
+        type: string
+        default: ""
+      buzz-channel:
+        description: Buzz/Nostr channel UUID passthrough.
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  group: swarm-${{ inputs.issue }}
+  cancel-in-progress: false
+
+jobs:
+  # ── Docs agent ──────────────────────────────────────────────────────────────
+  agent:
+    name: Docs agent
+    runs-on: ${{ inputs.runner-label }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      verdict: ${{ steps.read-outcome.outputs.verdict }}
+      summary: ${{ steps.read-outcome.outputs.summary }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SWARM_LLM_MODEL: ${{ inputs.model }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Fetch PR diff and issue context
+        id: ctx
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          issue_json="$(gh issue view "$ISSUE_NUMBER" \
+            --json number,title,body,labels \
+            --repo "$GITHUB_REPOSITORY")"
+
+          pr_meta="$(gh api \
+            "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            --jq '{title: .title, body: .body, head_sha: .head.sha, merged_at: .merged_at}')"
+
+          pr_diff="$(gh api \
+            "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            --header "Accept: application/vnd.github.v3.diff")"
+
+          context_json="$(printf '%s' "$issue_json" | jq \
+            --argjson pr "$PR_NUMBER" \
+            --argjson issue "$ISSUE_NUMBER" \
+            --argjson meta "$pr_meta" \
+            --arg diff "$pr_diff" \
+            '. + {pr: $pr, issue_number: $issue, pr_meta: $meta, diff: $diff}')"
+
+          delim="swarm_$(openssl rand -hex 16)"
+          {
+            printf 'json<<%s\n' "$delim"
+            printf '%s\n' "$context_json"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run docs agent
+        uses: ./actions/agent-run
+        with:
+          role: docs
+          prompt-file: ${{ github.workspace }}/prompts/docs.md
+          context-json: ${{ steps.ctx.outputs.json }}
+          adapter: ${{ inputs.adapter }}
+          timeout-minutes: '10'
+
+      - name: Upload outcome artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: outcome-docs-${{ inputs.issue }}
+          path: outcome.json
+
+      - name: Read outcome
+        id: read-outcome
+        run: |
+          verdict="$(jq -r '.verdict' outcome.json | tr -d '\n\r')"
+          printf 'verdict=%s\n' "$verdict" >> "$GITHUB_OUTPUT"
+          summary="$(jq -r '.evidence.summary // ""' outcome.json | tr -d '\n\r')"
+          printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
+
+      - name: Enforce skipped-requires-reason
+        # Deterministic structural check: if verdict=skipped and evidence.reason
+        # is absent or empty, this step exits 1 and the job fails loudly.
+        # Schema validation cannot express this constraint — this step owns it.
+        env:
+          WORKSPACE: ${{ github.workspace }}
+        run: |
+          bash "${WORKSPACE}/scripts/check-skipped-reason.sh" outcome.json
+
+  # ── Glue: post comment + transition + close + notify ─────────────────────────
+  glue:
+    name: Docs glue
+    runs-on: ubuntu-latest
+    needs: agent
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Post docs summary comment
+        if: inputs.dry-run == false
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          VERDICT: ${{ needs.agent.outputs.verdict }}
+          SUMMARY: ${{ needs.agent.outputs.summary }}
+        run: |
+          case "$VERDICT" in
+            done)
+              msg="**swarm docs:** ${SUMMARY}"
+              ;;
+            skipped)
+              msg="**swarm docs (skipped):** ${SUMMARY}"
+              ;;
+            *)
+              printf 'ERROR: unexpected docs verdict: %s\n' "$VERDICT" >&2
+              exit 1
+              ;;
+          esac
+          gh issue comment "$ISSUE_NUMBER" --body "$msg" --repo "$GITHUB_REPOSITORY"
+
+      - name: Dry-run log (docs comment)
+        if: inputs.dry-run == true
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          VERDICT: ${{ needs.agent.outputs.verdict }}
+          SUMMARY: ${{ needs.agent.outputs.summary }}
+        run: |
+          printf 'dry-run: docs verdict=%s — would comment on issue #%s: %s\n' \
+            "$VERDICT" "$ISSUE_NUMBER" "$SUMMARY"
+
+      - name: Transition swarm:docs → swarm:done
+        if: inputs.dry-run == false
+        uses: ./actions/transition
+        with:
+          issue-number: ${{ inputs.issue }}
+          from-stage: swarm:docs
+          to-stage: swarm:done
+
+      - name: Dry-run log (transition)
+        if: inputs.dry-run == true
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          printf 'dry-run: would transition issue #%s from swarm:docs to swarm:done\n' "$ISSUE_NUMBER"
+
+      - name: Close issue
+        if: inputs.dry-run == false
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          gh issue close "$ISSUE_NUMBER" \
+            --comment "Issue closed by swarm docs workflow after documentation stage completed." \
+            --repo "$GITHUB_REPOSITORY"
+
+      - name: Dry-run log (close)
+        if: inputs.dry-run == true
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          printf 'dry-run: would close issue #%s\n' "$ISSUE_NUMBER"
+
+      - name: Build notify event
+        id: notify-event
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          PR_NUMBER: ${{ inputs.pr }}
+          VERDICT: ${{ needs.agent.outputs.verdict }}
+          SUMMARY: ${{ needs.agent.outputs.summary }}
+        run: |
+          event_json="$(jq -n \
+            --arg event "docs-complete" \
+            --arg repo "${GITHUB_REPOSITORY}" \
+            --argjson issue "${ISSUE_NUMBER}" \
+            --argjson pr "${PR_NUMBER}" \
+            --arg stage_from "swarm:docs" \
+            --arg stage_to "swarm:done" \
+            --arg actor "${GITHUB_ACTOR}" \
+            --arg url "https://github.com/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" \
+            --arg summary "${SUMMARY}" \
+            '{event: $event, repo: $repo, issue: $issue, pr: $pr,
+              stage_from: $stage_from, stage_to: $stage_to,
+              actor: $actor, url: $url, summary: $summary}')"
+          printf '%s\n' "$event_json" > /tmp/swarm-notify-event.json
+
+      - name: Notify
+        if: inputs.dry-run == false
+        uses: ./actions/notify
+        with:
+          event-file: /tmp/swarm-notify-event.json
+          enabled-sinks: ${{ inputs.enabled-sinks }}
+          buzz-channel: ${{ inputs.buzz-channel }}
+
+      - name: Dry-run log (notify)
+        if: inputs.dry-run == true
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          printf 'dry-run: would notify sinks for issue #%s docs-complete event\n' "$ISSUE_NUMBER"
+
+      - name: Unexpected verdict (fail)
+        if: |
+          needs.agent.outputs.verdict != 'done' &&
+          needs.agent.outputs.verdict != 'skipped'
+        env:
+          VERDICT: ${{ needs.agent.outputs.verdict }}
+        run: |
+          printf 'ERROR: unexpected docs verdict: %s\n' "$VERDICT" >&2
+          exit 1

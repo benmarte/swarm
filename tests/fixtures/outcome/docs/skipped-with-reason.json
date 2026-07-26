@@ -1,0 +1,10 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "docs",
+  "verdict": "skipped",
+  "refs": { "issue": 7, "pr": 21 },
+  "evidence": {
+    "summary": "No documentation needed; this is a test-only change with no user-facing behaviour altered.",
+    "reason": "test-only change: added bats assertions for existing behaviour; no new API, config surface, or user-facing workflow introduced"
+  }
+}

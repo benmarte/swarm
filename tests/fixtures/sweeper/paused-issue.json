@@ -1,0 +1,11 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "orchestrator",
+  "verdict": "report",
+  "refs": { "issue": 0 },
+  "evidence": {
+    "summary": "Nightly sweep: 1 issue checked; paused issue excluded from stuck report.",
+    "checked_issues": [44],
+    "stuck": []
+  }
+}
