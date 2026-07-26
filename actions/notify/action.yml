@@ -33,6 +33,7 @@ runs:
     - name: Fan-out event to enabled sinks
       shell: bash
       env:
+        ACTION_PATH: ${{ github.action_path }}
         EVENT_FILE: ${{ inputs.event-file }}
         ENABLED_SINKS: ${{ inputs.enabled-sinks }}
         BUZZ_CHANNEL: ${{ inputs.buzz-channel }}
@@ -41,4 +42,4 @@ runs:
         SWARM_TEAMS_WEBHOOK: ${{ env.SWARM_TEAMS_WEBHOOK }}
         SWARM_BUZZ_RELAY_URL: ${{ env.SWARM_BUZZ_RELAY_URL }}
         SWARM_BUZZ_PRIVATE_KEY: ${{ env.SWARM_BUZZ_PRIVATE_KEY }}
-      run: bash "${{ github.action_path }}/notify.sh"
+      run: bash "$ACTION_PATH/notify.sh"
