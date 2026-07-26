@@ -73,6 +73,7 @@ echo "bump-attempts: current attempts = ${current_n}"
 if [ "$current_n" -ge "$ATTEMPT_LIMIT" ]; then
   echo "bump-attempts: already at attempt limit (${ATTEMPT_LIMIT}); escalation already applied."
   printf 'needs-human=true\n' >> "${GITHUB_OUTPUT:-/dev/null}"
+  printf 'attempt-count=%s\n' "$ATTEMPT_LIMIT" >> "${GITHUB_OUTPUT:-/dev/null}"
   exit 0
 fi
 
@@ -104,6 +105,7 @@ echo "bump-attempts: attempts now at ${next_n}."
 # ---------------------------------------------------------------------------
 if [ "$next_n" -lt "$ATTEMPT_LIMIT" ]; then
   printf 'needs-human=false\n' >> "${GITHUB_OUTPUT:-/dev/null}"
+  printf 'attempt-count=%s\n' "$next_n" >> "${GITHUB_OUTPUT:-/dev/null}"
 fi
 
 if [ "$next_n" -eq "$ATTEMPT_LIMIT" ]; then
@@ -164,5 +166,6 @@ if [ "$next_n" -eq "$ATTEMPT_LIMIT" ]; then
   fi
 
   printf 'needs-human=true\n' >> "${GITHUB_OUTPUT:-/dev/null}"
+  printf 'attempt-count=%s\n' "$next_n" >> "${GITHUB_OUTPUT:-/dev/null}"
   echo "bump-attempts: escalation complete — issue #${ISSUE_NUMBER} needs human attention."
 fi

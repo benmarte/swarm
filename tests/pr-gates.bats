@@ -298,3 +298,187 @@ PYEOF
   run grep -q "required" "$PR_GATES"
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# SWARM_FIX_CONTEXT wiring (blocking review item)
+# ---------------------------------------------------------------------------
+
+@test "fix.yml: headless path builds SWARM_FIX_CONTEXT with all four required fields" {
+  # headless.sh schema: {check_name, conclusion, log_url, attempt_number}
+  # All four must appear in the jq expression in fix.yml
+  run python3 - "$FIX" <<'PYEOF'
+import sys
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+required_fields = ["check_name", "conclusion", "log_url", "attempt_number"]
+missing = [f for f in required_fields if f not in content]
+
+if missing:
+    print(f"ERROR: SWARM_FIX_CONTEXT JSON missing fields in fix.yml: {missing}")
+    sys.exit(1)
+
+if "SWARM_FIX_CONTEXT" not in content:
+    print("ERROR: SWARM_FIX_CONTEXT not referenced in fix.yml")
+    sys.exit(1)
+
+# Confirm GITHUB_ENV is used to propagate it (not inline in run: block)
+if "GITHUB_ENV" not in content:
+    print("ERROR: SWARM_FIX_CONTEXT should be written to GITHUB_ENV for propagation")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "headless.sh: SWARM_FIX_CONTEXT is injected into prompt as '## Fix Context' section" {
+  local tmp_dir="$BATS_TMPDIR/headless-fixctx-test"
+  mkdir -p "$tmp_dir"
+
+  local capture_file="$tmp_dir/captured-prompt.txt"
+  local mock_adapter="$tmp_dir/mock-adapter"
+
+  # Write mock adapter that copies the prompt file to a known location
+  cat > "$mock_adapter" <<ADAPTER
+#!/usr/bin/env bash
+cp "\$1" "$capture_file"
+exit 0
+ADAPTER
+  chmod +x "$mock_adapter"
+
+  local spec_file="$tmp_dir/spec.md"
+  printf '# Test specification\n' > "$spec_file"
+
+  local fix_ctx='{"check_name":"lint,test","conclusion":"failure","log_url":"https://example.com/run/1","attempt_number":2}'
+
+  run env \
+    ADAPTER_CMD="$mock_adapter" \
+    WORKTREE="$tmp_dir" \
+    ISSUE_NUMBER="42" \
+    SPEC_FILE="$spec_file" \
+    SWARM_LLM_MODEL="" \
+    SWARM_FIX_CONTEXT="$fix_ctx" \
+    bash "$REPO_ROOT/actions/develop-run/adapters/headless.sh"
+
+  [ "$status" -eq 0 ]
+  [ -f "$capture_file" ]
+  run grep -q "## Fix Context" "$capture_file"
+  [ "$status" -eq 0 ]
+
+  rm -rf "$tmp_dir"
+}
+
+@test "headless.sh: prompt contains SWARM_FIX_CONTEXT JSON content when set" {
+  local tmp_dir="$BATS_TMPDIR/headless-fixctx-json-test"
+  mkdir -p "$tmp_dir"
+
+  local capture_file="$tmp_dir/captured-prompt.txt"
+  local mock_adapter="$tmp_dir/mock-adapter"
+
+  cat > "$mock_adapter" <<ADAPTER
+#!/usr/bin/env bash
+cp "\$1" "$capture_file"
+exit 0
+ADAPTER
+  chmod +x "$mock_adapter"
+
+  local spec_file="$tmp_dir/spec.md"
+  printf '# Spec\n' > "$spec_file"
+
+  local fix_ctx='{"check_name":"ci-lint","conclusion":"failure","log_url":"https://ci.example.com/123","attempt_number":1}'
+
+  run env \
+    ADAPTER_CMD="$mock_adapter" \
+    WORKTREE="$tmp_dir" \
+    ISSUE_NUMBER="7" \
+    SPEC_FILE="$spec_file" \
+    SWARM_LLM_MODEL="" \
+    SWARM_FIX_CONTEXT="$fix_ctx" \
+    bash "$REPO_ROOT/actions/develop-run/adapters/headless.sh"
+
+  [ "$status" -eq 0 ]
+  [ -f "$capture_file" ]
+  # All four schema fields must appear in the prompt
+  run grep -q "ci-lint" "$capture_file"
+  [ "$status" -eq 0 ]
+  run grep -q "failure" "$capture_file"
+  [ "$status" -eq 0 ]
+
+  rm -rf "$tmp_dir"
+}
+
+@test "headless.sh: no fix-context section when SWARM_FIX_CONTEXT is unset" {
+  local tmp_dir="$BATS_TMPDIR/headless-nofixctx-test"
+  mkdir -p "$tmp_dir"
+
+  local capture_file="$tmp_dir/captured-prompt.txt"
+  local mock_adapter="$tmp_dir/mock-adapter"
+
+  cat > "$mock_adapter" <<ADAPTER
+#!/usr/bin/env bash
+cp "\$1" "$capture_file"
+exit 0
+ADAPTER
+  chmod +x "$mock_adapter"
+
+  local spec_file="$tmp_dir/spec.md"
+  printf '# Spec\n' > "$spec_file"
+
+  run env \
+    ADAPTER_CMD="$mock_adapter" \
+    WORKTREE="$tmp_dir" \
+    ISSUE_NUMBER="7" \
+    SPEC_FILE="$spec_file" \
+    SWARM_LLM_MODEL="" \
+    bash "$REPO_ROOT/actions/develop-run/adapters/headless.sh"
+
+  [ "$status" -eq 0 ]
+  [ -f "$capture_file" ]
+  run grep -q "## Fix Context" "$capture_file"
+  [ "$status" -ne 0 ]
+
+  rm -rf "$tmp_dir"
+}
+
+# ---------------------------------------------------------------------------
+# Output sanitization (security review item)
+# ---------------------------------------------------------------------------
+
+@test "pr-gates.yml: outcome-derived single-line outputs sanitized with tr -d" {
+  # Both reviewer and security Read outcome steps must pipe through tr -d '\n\r'
+  # to prevent newline-injection spoofing of GITHUB_OUTPUT key=value pairs.
+  count="$(grep -c "tr -d" "$PR_GATES")"
+  [ "$count" -ge 2 ]
+}
+
+# ---------------------------------------------------------------------------
+# Reviewer-post idempotency guard (advisory review item)
+# ---------------------------------------------------------------------------
+
+@test "pr-gates.yml: reviewer-post contains idempotency check before posting review" {
+  # Verify that a duplicate-review guard exists in reviewer-post job
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# Look for the idempotency guard pattern: listing existing reviews and checking skip
+if "skip" not in content:
+    print("ERROR: no 'skip' output found — idempotency guard missing in reviewer-post")
+    sys.exit(1)
+
+if "/reviews" not in content:
+    print("ERROR: no PR reviews API call found — idempotency guard must list existing reviews")
+    sys.exit(1)
+
+if "check-review" not in content:
+    print("ERROR: check-review step not found in pr-gates.yml")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}

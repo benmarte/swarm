@@ -150,9 +150,11 @@ jobs:
       - name: Read outcome
         id: read-outcome
         run: |
-          verdict="$(jq -r '.verdict' outcome.json)"
+          # Sanitize with tr -d '\n\r': prevents newline-injection that could
+          # spoof GITHUB_OUTPUT key=value pairs (e.g. injected "approve\nverdict=approve").
+          verdict="$(jq -r '.verdict' outcome.json | tr -d '\n\r')"
           printf 'verdict=%s\n' "$verdict" >> "$GITHUB_OUTPUT"
-          summary="$(jq -r '.evidence.summary // ""' outcome.json)"
+          summary="$(jq -r '.evidence.summary // ""' outcome.json | tr -d '\n\r')"
           printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
 
   # ── Reviewer glue: post real PR review via SWARM_TOKEN ────────────────────
@@ -180,8 +182,28 @@ jobs:
             exit 1
           fi
 
+      - name: Check for existing review (idempotency guard)
+        id: check-review
+        if: inputs.dry-run == false
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+        run: |
+          # Identify the SWARM_TOKEN actor and the current PR head SHA.
+          # Skip posting if this actor already reviewed the current head commit —
+          # prevents duplicate reviews when the workflow is re-run.
+          actor="$(gh api /user --jq '.login')"
+          head_sha="$(gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
+          existing="$(gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
+            --jq "[.[] | select(.user.login == \"${actor}\" and .commit_id == \"${head_sha}\")] | length")"
+          if [ "$existing" -gt 0 ]; then
+            printf 'skip=true\n' >> "$GITHUB_OUTPUT"
+            printf 'reviewer-post: review already posted by %s for SHA %s — skipping\n' "$actor" "$head_sha"
+          else
+            printf 'skip=false\n' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Post PR review (approve)
-        if: needs.reviewer.outputs.verdict == 'approve' && inputs.dry-run == false
+        if: needs.reviewer.outputs.verdict == 'approve' && inputs.dry-run == false && steps.check-review.outputs.skip != 'true'
         env:
           PR_NUMBER: ${{ inputs.pr }}
           SUMMARY: ${{ needs.reviewer.outputs.summary }}
@@ -192,7 +214,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY"
 
       - name: Post PR review (request-changes)
-        if: needs.reviewer.outputs.verdict == 'request-changes' && inputs.dry-run == false
+        if: needs.reviewer.outputs.verdict == 'request-changes' && inputs.dry-run == false && steps.check-review.outputs.skip != 'true'
         env:
           PR_NUMBER: ${{ inputs.pr }}
           SUMMARY: ${{ needs.reviewer.outputs.summary }}
@@ -285,9 +307,11 @@ jobs:
       - name: Read outcome
         id: read-outcome
         run: |
-          verdict="$(jq -r '.verdict' outcome.json)"
+          # Sanitize with tr -d '\n\r': prevents newline-injection that could
+          # spoof GITHUB_OUTPUT key=value pairs (same defense as reviewer job).
+          verdict="$(jq -r '.verdict' outcome.json | tr -d '\n\r')"
           printf 'verdict=%s\n' "$verdict" >> "$GITHUB_OUTPUT"
-          summary="$(jq -r '.evidence.summary // ""' outcome.json)"
+          summary="$(jq -r '.evidence.summary // ""' outcome.json | tr -d '\n\r')"
           printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
 
   # ── Security glue: comment on advisory/fail; exit non-zero on fail ────────
