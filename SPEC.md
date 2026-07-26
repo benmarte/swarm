@@ -155,8 +155,8 @@ swarm/
 - [ ] `docs/adopting.md` lets a fresh repo adopt swarm in < 30 minutes without reading source.
 - [ ] Swarm's own CI green: actionlint, shellcheck, bats suite.
 
-## 8. Open questions (answer before /plan)
+## 8. Resolved questions (decided 2026-07-26)
 
-1. PM spec artifact home: issue comment only, or also committed to `docs/specs/issue-N.md` on the feature branch? (lean: comment + branch file)
-2. Sweeper cadence & scope: nightly report only, or also auto-unpause stale `swarm:paused`?
-3. Does `swarm:go` on dycotomic imply auto-assignment of the issue to the pipeline milestone/project view?
+1. **PM spec artifact home:** issue comment AND `docs/specs/issue-N.md` committed on the feature branch — reviewable in the PR diff, survives issue archival.
+2. **Sweeper scope:** nightly report + `swarm:needs-human` escalations only. Humans unpause `swarm:paused` explicitly; the sweeper never changes state overnight.
+3. **`swarm:go` → board sync:** no — labels remain the sole canonical state in v1; milestone/Projects assignment stays a v1.1 nice-to-have.
