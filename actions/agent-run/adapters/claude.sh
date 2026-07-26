@@ -70,19 +70,35 @@ ${SWARM_CONTEXT_JSON:-{}}
 # ---------------------------------------------------------------------------
 # Invoke Claude headless
 # Decision roles must NOT execute code — read-only tools only.
+# `timeout` (GNU coreutils) is used to enforce the time limit when available;
+# present on ubuntu-latest runners and mac self-hosted runners via coreutils.
 # ---------------------------------------------------------------------------
 TIMEOUT_SECS="${SWARM_TIMEOUT:-300}"
 
 echo "claude adapter: invoking claude -p (role=${SWARM_ROLE:-unknown}, timeout=${TIMEOUT_SECS}s)"
 
-if ! raw_response=$(claude -p "$FULL_PROMPT" \
-  --output-format json \
-  --allowedTools "Read,Glob,Grep" \
-  --max-turns 1 \
-  2>&1); then
-  echo "claude adapter: ERROR: claude exited non-zero" >&2
-  echo "$raw_response" >&2
-  exit 1
+if command -v timeout >/dev/null 2>&1; then
+  if ! raw_response=$(timeout "$TIMEOUT_SECS" claude -p "$FULL_PROMPT" \
+    --output-format json \
+    --allowedTools "Read,Glob,Grep" \
+    --max-turns 1 \
+    2>&1); then
+    echo "claude adapter: ERROR: claude exited non-zero (or timed out after ${TIMEOUT_SECS}s)" >&2
+    echo "$raw_response" >&2
+    exit 1
+  fi
+else
+  echo "claude adapter: WARNING: 'timeout' binary not found; proceeding without enforced time limit." >&2
+  echo "  Install coreutils (brew install coreutils on macOS) to enable timeout enforcement." >&2
+  if ! raw_response=$(claude -p "$FULL_PROMPT" \
+    --output-format json \
+    --allowedTools "Read,Glob,Grep" \
+    --max-turns 1 \
+    2>&1); then
+    echo "claude adapter: ERROR: claude exited non-zero" >&2
+    echo "$raw_response" >&2
+    exit 1
+  fi
 fi
 
 # ---------------------------------------------------------------------------

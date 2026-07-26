@@ -28,13 +28,17 @@ setup() {
   export CLAUDE_STUB_LOG
   CLAUDE_STUB_LOG="$(mktemp)"
 
+  # Timeout stub log
+  export TIMEOUT_STUB_LOG
+  TIMEOUT_STUB_LOG="$(mktemp)"
+
   # Curl stub logs
   export CURL_STUB_LOG
   CURL_STUB_LOG="$(mktemp)"
   export CURL_BODY_LOG
   CURL_BODY_LOG="$(mktemp)"
 
-  # Prepend stubs dir so fake claude/curl are found first; real ajv/jq live later
+  # Prepend stubs dir so fake claude/curl/timeout are found first; real ajv/jq live later
   export PATH="$STUBS_DIR:$PATH"
 
   # Default env for agent-run.sh
@@ -51,7 +55,7 @@ setup() {
 
 teardown() {
   rm -rf "$GITHUB_WORKSPACE"
-  rm -f "$CLAUDE_STUB_LOG" "$CURL_STUB_LOG" "$CURL_BODY_LOG"
+  rm -f "$CLAUDE_STUB_LOG" "$TIMEOUT_STUB_LOG" "$CURL_STUB_LOG" "$CURL_BODY_LOG"
 }
 
 # =============================================================================
@@ -311,10 +315,10 @@ teardown() {
   grep -q "http://localhost:11434/v1/chat/completions" "$CURL_STUB_LOG"
 }
 
-@test "openai-compat adapter: falls back to JSON extraction when response is prose+JSON" {
-  # curl stub returns a response where content is prose wrapping a JSON object
-  VALID_OUTCOME="$(cat "$VALID_OUTCOME_FIXTURE")"
-  PROSE_CONTENT="Here is my analysis: $VALID_OUTCOME and that is my verdict."
+@test "openai-compat adapter: fallback extracts single-line prose+JSON" {
+  # curl stub returns a response where content is prose on one line with embedded JSON
+  VALID_OUTCOME="$(cat "$VALID_OUTCOME_FIXTURE" | tr -d '\n')"
+  PROSE_CONTENT="Here is my analysis: $VALID_OUTCOME — that is my verdict."
   export CURL_STUB_RESPONSE
   CURL_STUB_RESPONSE="$(jq -n --arg content "$PROSE_CONTENT" \
     '{choices:[{message:{role:"assistant",content:$content}}]}')"
@@ -324,16 +328,48 @@ teardown() {
   unset CI 2>/dev/null || true
 
   run bash "$OPENAI_ADAPTER"
-  # The fallback regex extraction is basic (grep -o '{.*}') and may not handle
-  # nested braces reliably; test intent is that the path exists, not full coverage
-  # This test may produce exit 0 (good extraction) or exit 1 (extraction failed)
-  # depending on the specific outcome fixture structure — document the behavior.
-  # We assert that the adapter does NOT exit 0 with prose written directly to
-  # outcome.json (i.e., it either succeeds with extracted JSON or fails explicitly)
-  if [ "$status" -eq 0 ]; then
-    # If it succeeded, the file must be JSON
-    jq -e '.' "$OUTCOME_FILE" > /dev/null
-  fi
+  [ "$status" -eq 0 ]
+  [ -f "$OUTCOME_FILE" ]
+  jq -e '.schema == "swarm/outcome@1"' "$OUTCOME_FILE" > /dev/null
+  [[ "$output" == *"fallback"* ]]
+}
+
+@test "openai-compat adapter: fallback extracts multi-line JSON" {
+  # curl stub returns content where the JSON spans multiple lines (common for verbose models)
+  VALID_OUTCOME="$(cat "$VALID_OUTCOME_FIXTURE")"
+  PROSE_CONTENT="$(printf 'Here is the result:\n%s\nDone.' "$VALID_OUTCOME")"
+  export CURL_STUB_RESPONSE
+  CURL_STUB_RESPONSE="$(jq -n --arg content "$PROSE_CONTENT" \
+    '{choices:[{message:{role:"assistant",content:$content}}]}')"
+
+  export SWARM_LLM_BASE_URL="http://localhost:11434/v1"
+  export SWARM_LLM_MODEL="llama3.2"
+  unset CI 2>/dev/null || true
+
+  run bash "$OPENAI_ADAPTER"
+  [ "$status" -eq 0 ]
+  [ -f "$OUTCOME_FILE" ]
+  jq -e '.schema == "swarm/outcome@1"' "$OUTCOME_FILE" > /dev/null
+  [[ "$output" == *"fallback"* ]]
+}
+
+@test "openai-compat adapter: fallback extracts markdown-fenced JSON" {
+  # curl stub returns content wrapped in markdown code fences (```json ... ```)
+  VALID_OUTCOME="$(cat "$VALID_OUTCOME_FIXTURE")"
+  PROSE_CONTENT="$(printf 'Here is the outcome:\n\`\`\`json\n%s\n\`\`\`\nEnd.' "$VALID_OUTCOME")"
+  export CURL_STUB_RESPONSE
+  CURL_STUB_RESPONSE="$(jq -n --arg content "$PROSE_CONTENT" \
+    '{choices:[{message:{role:"assistant",content:$content}}]}')"
+
+  export SWARM_LLM_BASE_URL="http://localhost:11434/v1"
+  export SWARM_LLM_MODEL="llama3.2"
+  unset CI 2>/dev/null || true
+
+  run bash "$OPENAI_ADAPTER"
+  [ "$status" -eq 0 ]
+  [ -f "$OUTCOME_FILE" ]
+  jq -e '.schema == "swarm/outcome@1"' "$OUTCOME_FILE" > /dev/null
+  [[ "$output" == *"fallback"* ]]
 }
 
 @test "openai-compat adapter: exits 1 when curl stub fails" {
@@ -355,4 +391,34 @@ teardown() {
   run bash "$OPENAI_ADAPTER"
   [ "$status" -ne 0 ]
   [[ "$output" == *"error"* ]] || [[ "$output" == *"ERROR"* ]]
+}
+
+# =============================================================================
+# claude.sh adapter — timeout enforcement
+# =============================================================================
+
+@test "claude adapter: timeout stub is invoked with SWARM_TIMEOUT seconds" {
+  # timeout stub (tests/stubs/timeout) is on PATH; it records its argv and delegates.
+  # Verify that claude -p is wrapped with timeout <SWARM_TIMEOUT_MINUTES*60>.
+  export SWARM_TIMEOUT="60"  # pre-computed seconds (as set by agent-run.sh)
+
+  run bash "$CLAUDE_ADAPTER"
+  [ "$status" -eq 0 ]
+
+  # timeout stub must have been called
+  [ -s "$TIMEOUT_STUB_LOG" ]
+  grep -q "^timeout" "$TIMEOUT_STUB_LOG"
+  # The first argument after "timeout" must be the timeout in seconds
+  grep -q "timeout 60" "$TIMEOUT_STUB_LOG"
+  # claude stub must also have been called (timeout stub delegates to it)
+  grep -q "^claude" "$CLAUDE_STUB_LOG"
+}
+
+@test "claude adapter: timeout stub invocation wraps claude command" {
+  export SWARM_TIMEOUT="120"
+
+  run bash "$CLAUDE_ADAPTER"
+  [ "$status" -eq 0 ]
+
+  grep -q "timeout 120" "$TIMEOUT_STUB_LOG"
 }

@@ -179,27 +179,42 @@ fi
 # ---------------------------------------------------------------------------
 # Validate the content parses as JSON.
 # Primary path: response_format was honored and content IS the JSON object.
-# Fallback path: extract the first {...} block from the content if it's prose
-#                with embedded JSON.
+# Fallback path: strip markdown fences then extract the first {...} block via
+#                python3 re.search(r'\{[\s\S]*\}', text) — handles multi-line
+#                and markdown-fenced JSON from non-compliant models.
 # In both cases, validate-outcome performs full schema validation.
 # ---------------------------------------------------------------------------
 if echo "$assistant_content" | jq empty 2>/dev/null; then
   outcome_json="$assistant_content"
 else
   echo "openai-compat adapter: response_format not honored; attempting JSON extraction fallback"
-  # Extract the first {...} block from the content
-  if ! outcome_json=$(echo "$assistant_content" | grep -o '{.*}' | head -1); then
+  # shellcheck disable=SC2016
+  # Reason: single quotes are intentional — the python3 -c string contains Python
+  # regex syntax (\{, \S, \}) that must not be expanded by the shell.
+  if ! outcome_json=$(printf '%s' "$assistant_content" | python3 -c '
+import sys, re
+text = sys.stdin.read()
+# Strip markdown code fences (```json ... ``` or ``` ... ```)
+text = re.sub(r"```(?:json)?", "", text)
+# Greedy match from first { to last } — handles multi-line JSON
+m = re.search(r"\{[\s\S]*\}", text)
+if not m:
+    sys.exit(1)
+print(m.group(0), end="")
+' 2>/dev/null); then
     echo "openai-compat adapter: ERROR: cannot extract JSON from model response." >&2
     echo "  The model must output a JSON object matching swarm/outcome@1." >&2
     echo "  Content (first 500 chars):" >&2
-    echo "$assistant_content" | head -c 500 >&2
+    printf '%s' "$assistant_content" | head -c 500 >&2
+    echo "" >&2
     exit 1
   fi
   # Validate the extracted block is parseable JSON
   if ! echo "$outcome_json" | jq empty 2>/dev/null; then
     echo "openai-compat adapter: ERROR: extracted content is not valid JSON." >&2
     echo "  Content (first 500 chars):" >&2
-    echo "$assistant_content" | head -c 500 >&2
+    printf '%s' "$assistant_content" | head -c 500 >&2
+    echo "" >&2
     exit 1
   fi
   echo "openai-compat adapter: JSON extracted via fallback (response_format not honored)"
