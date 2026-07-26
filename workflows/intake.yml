@@ -1,0 +1,216 @@
+# intake.yml — swarm intake reusable workflow (workflow_call)
+#
+# Caller-input surface:
+#   issue          (number,  required)                 Issue number to validate.
+#   runner-label   (string,  default: swarm-agent)     Runner label for the agent job. Glue jobs always use ubuntu-latest.
+#   dry-run        (boolean, default: false)            When true, logs all intended mutations without executing any GitHub API writes.
+#   adapter        (string,  default: claude)           Agent adapter forwarded to agent-run. One of: claude, openai-compat.
+#   model          (string,  default: "")               LLM model identifier set as SWARM_LLM_MODEL env on the agent job.
+#                                                       Consumed by the openai-compat adapter (SWARM_LLM_MODEL); ignored by claude.
+#   enabled-sinks  (string,  default: "")               Reserved: comma-separated notify sinks (slack,buzz,discord,teams).
+#                                                       Will be wired to transition/notify when those actions expose the input.
+#   buzz-channel   (string,  default: "")               Reserved: Buzz/Nostr channel UUID. Will be wired to notify passthrough.
+#
+# Routing per SPEC §2.1:
+#   verdict=confirmed  → actions/transition swarm:go → swarm:spec
+#   verdict=duplicate  → gh issue comment (duplicate explanation) + gh issue close
+#   verdict=invalid    → gh issue comment (invalid explanation)   + gh issue close
+#   verdict=needs-info → gh issue comment (clarification request) + actions/transition swarm:go → swarm:needs-human
+#
+# Idempotency: concurrency group swarm-<issue> with cancel-in-progress: false prevents duplicate
+# runs for the same issue without cancelling an already-running validation.
+#
+# Permissions per job:
+#   agent job : contents: read, issues: read  (action_path resolution + gh issue view)
+#   route job : contents: read, issues: write (label swaps, comments, close)
+
+on:
+  workflow_call:
+    inputs:
+      issue:
+        description: Issue number to validate.
+        required: true
+        type: number
+      runner-label:
+        description: Runner label for the agent job. Glue jobs always use ubuntu-latest.
+        required: false
+        type: string
+        default: swarm-agent
+      dry-run:
+        description: When true, log intended mutations without executing them.
+        required: false
+        type: boolean
+        default: false
+      adapter:
+        description: Agent adapter (claude or openai-compat).
+        required: false
+        type: string
+        default: claude
+      model:
+        description: LLM model identifier set as SWARM_LLM_MODEL. Consumed by openai-compat; ignored by claude.
+        required: false
+        type: string
+        default: ""
+      enabled-sinks:
+        description: Reserved — comma-separated notify sinks; wired to transition/notify in a future update.
+        required: false
+        type: string
+        default: ""
+      buzz-channel:
+        description: Reserved — Buzz/Nostr channel UUID; wired to notify passthrough in a future update.
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  group: swarm-${{ inputs.issue }}
+  cancel-in-progress: false
+
+jobs:
+  agent:
+    name: Validate issue
+    runs-on: ${{ inputs.runner-label }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      verdict: ${{ steps.read-outcome.outputs.verdict }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SWARM_LLM_MODEL: ${{ inputs.model }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Fetch issue context
+        id: ctx
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          context_json="$(gh issue view "$ISSUE_NUMBER" \
+            --json number,title,body,labels \
+            --repo "$GITHUB_REPOSITORY")"
+          {
+            printf 'json<<SWARM_CTX_EOF\n'
+            printf '%s\n' "$context_json"
+            printf 'SWARM_CTX_EOF\n'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run validator agent
+        uses: ./actions/agent-run
+        with:
+          role: validator
+          prompt-file: ${{ github.workspace }}/prompts/validator.md
+          context-json: ${{ steps.ctx.outputs.json }}
+          adapter: ${{ inputs.adapter }}
+          timeout-minutes: '10'
+
+      - name: Upload outcome artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: outcome-${{ inputs.issue }}
+          path: outcome.json
+
+      - name: Read outcome verdict
+        id: read-outcome
+        run: |
+          verdict="$(jq -r '.verdict' outcome.json)"
+          printf 'verdict=%s\n' "$verdict" >> "$GITHUB_OUTPUT"
+
+  route:
+    name: Route verdict
+    runs-on: ubuntu-latest
+    needs: agent
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # ── confirmed: advance to swarm:spec ──────────────────────────────────
+      - name: Transition confirmed → swarm:spec
+        if: needs.agent.outputs.verdict == 'confirmed' && inputs.dry-run == false
+        uses: ./actions/transition
+        with:
+          issue-number: ${{ inputs.issue }}
+          from-stage: swarm:go
+          to-stage: swarm:spec
+
+      - name: Dry-run log (confirmed)
+        if: needs.agent.outputs.verdict == 'confirmed' && inputs.dry-run == true
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          printf 'dry-run: verdict=confirmed — would transition issue #%s from swarm:go to swarm:spec\n' "$ISSUE_NUMBER"
+
+      # ── duplicate / invalid: comment + close ──────────────────────────────
+      - name: Comment and close (duplicate/invalid)
+        if: (needs.agent.outputs.verdict == 'duplicate' || needs.agent.outputs.verdict == 'invalid') && inputs.dry-run == false
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          VERDICT: ${{ needs.agent.outputs.verdict }}
+        run: |
+          case "$VERDICT" in
+            duplicate)
+              msg="The validator has identified this issue as a duplicate of an existing issue. Closing."
+              ;;
+            invalid)
+              msg="The validator has identified this issue as invalid or out of scope. Closing."
+              ;;
+            *)
+              msg="Issue closed by swarm validator."
+              ;;
+          esac
+          gh issue comment "$ISSUE_NUMBER" --body "$msg" --repo "$GITHUB_REPOSITORY"
+          gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY"
+
+      - name: Dry-run log (duplicate/invalid)
+        if: (needs.agent.outputs.verdict == 'duplicate' || needs.agent.outputs.verdict == 'invalid') && inputs.dry-run == true
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          VERDICT: ${{ needs.agent.outputs.verdict }}
+        run: |
+          printf 'dry-run: verdict=%s — would comment and close issue #%s\n' "$VERDICT" "$ISSUE_NUMBER"
+
+      # ── needs-info: clarification comment + transition to needs-human ──────
+      - name: Comment needs-info
+        if: needs.agent.outputs.verdict == 'needs-info' && inputs.dry-run == false
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "The validator requires additional information before this issue can proceed. Please provide the requested details; a maintainer will then re-apply \`swarm:go\`." \
+            --repo "$GITHUB_REPOSITORY"
+
+      - name: Transition needs-info → swarm:needs-human
+        if: needs.agent.outputs.verdict == 'needs-info' && inputs.dry-run == false
+        uses: ./actions/transition
+        with:
+          issue-number: ${{ inputs.issue }}
+          from-stage: swarm:go
+          to-stage: swarm:needs-human
+
+      - name: Dry-run log (needs-info)
+        if: needs.agent.outputs.verdict == 'needs-info' && inputs.dry-run == true
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          printf 'dry-run: verdict=needs-info — would comment and transition issue #%s from swarm:go to swarm:needs-human\n' "$ISSUE_NUMBER"
+
+      # ── unexpected verdict: fail loudly ───────────────────────────────────
+      - name: Unexpected verdict (fail)
+        if: |
+          needs.agent.outputs.verdict != 'confirmed' &&
+          needs.agent.outputs.verdict != 'duplicate' &&
+          needs.agent.outputs.verdict != 'invalid' &&
+          needs.agent.outputs.verdict != 'needs-info'
+        env:
+          VERDICT: ${{ needs.agent.outputs.verdict }}
+        run: |
+          printf 'ERROR: unexpected validator verdict: %s\n' "$VERDICT" >&2
+          exit 1
