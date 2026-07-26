@@ -1,7 +1,9 @@
-# sweeper.yml — swarm nightly fleet auditor
+# sweeper.yml — swarm nightly fleet auditor (workflow_call)
 #
-# Triggers: schedule (default 0 2 * * * — 02:00 UTC nightly) + workflow_dispatch.
-# NOT a workflow_call — this is a fleet audit, not an issue-scoped reusable workflow.
+# Per SPEC §2.2 all swarm workflows are on: workflow_call — consumers pin @v1
+# and own their own cron trigger. The schedule: trigger lives in the caller
+# workflow, NOT here. workflow_dispatch is retained for manual triggering
+# inside the swarm repo itself (development / one-shot audits).
 #
 # Jobs:
 #   gather   — collect open issues with swarm:* stage labels + last-activity timestamps
@@ -18,7 +20,7 @@
 # dry-run semantics: when dry-run=true, all write steps (comments, label adds,
 #   notify) log intent and exit 0. No GitHub mutations are performed.
 #
-# Caller example (consumer repo cron trigger):
+# Caller example (consumer repo — cron + manual trigger):
 #   on:
 #     schedule:
 #       - cron: '0 2 * * *'
@@ -36,6 +38,8 @@
 #       with:
 #         stall-threshold-hours: ${{ fromJson(inputs.stall-threshold-hours || '48') }}
 #         dry-run: ${{ fromJson(inputs.dry-run || 'false') }}
+#         runner-label: swarm-agent
+#         adapter: claude
 #       secrets: inherit
 #
 # Permissions per job:
@@ -44,8 +48,43 @@
 #   escalate: contents: read, issues: write
 
 on:
-  schedule:
-    - cron: '0 2 * * *'
+  workflow_call:
+    inputs:
+      stall-threshold-hours:
+        description: Hours of inactivity before an issue is considered stuck.
+        required: false
+        type: number
+        default: 48
+      runner-label:
+        description: Runner label for the agent job. Glue jobs always use ubuntu-latest.
+        required: false
+        type: string
+        default: swarm-agent
+      dry-run:
+        description: When true, log intended mutations without executing them.
+        required: false
+        type: boolean
+        default: false
+      adapter:
+        description: Agent adapter (claude or openai-compat).
+        required: false
+        type: string
+        default: claude
+      model:
+        description: LLM model identifier set as SWARM_LLM_MODEL.
+        required: false
+        type: string
+        default: ""
+      enabled-sinks:
+        description: Comma-separated notify sinks passthrough (slack,buzz,discord,teams).
+        required: false
+        type: string
+        default: ""
+      buzz-channel:
+        description: Buzz/Nostr channel UUID passthrough.
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       stall-threshold-hours:

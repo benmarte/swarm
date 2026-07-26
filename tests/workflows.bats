@@ -880,8 +880,9 @@ PYEOF
   [ "$status" -eq 0 ]
 }
 
-@test "sweeper.yml: declares on.schedule trigger" {
-  run grep -q "schedule:" "$SWEEPER"
+@test "sweeper.yml: declares on.workflow_call" {
+  # Per SPEC §2.2 all swarm reusable workflows use workflow_call; callers own the cron
+  run grep -q "workflow_call:" "$SWEEPER"
   [ "$status" -eq 0 ]
 }
 
@@ -890,10 +891,35 @@ PYEOF
   [ "$status" -eq 0 ]
 }
 
-@test "sweeper.yml: does NOT declare on.workflow_call" {
-  # sweeper is a fleet auditor, not a reusable issue-scoped workflow
-  run grep -q "workflow_call:" "$SWEEPER"
-  [ "$status" -ne 0 ]
+@test "sweeper.yml: does NOT have a bare on.schedule trigger" {
+  # The schedule: trigger lives in the caller, not in the reusable workflow.
+  # A top-level "  schedule:" line under "on:" would run in the swarm repo itself.
+  WORKFLOW_FILE="$SWEEPER" python3 - <<'PYEOF'
+import os, sys
+
+with open(os.environ["WORKFLOW_FILE"]) as fh:
+    lines = fh.readlines()
+
+# Detect a "  schedule:" line that is a direct child of the top-level "on:" block.
+in_on = False
+for i, line in enumerate(lines, 1):
+    stripped = line.rstrip('\n')
+    if stripped == 'on:':
+        in_on = True
+        continue
+    if in_on:
+        # Any non-indented line closes the on: block
+        if stripped and not stripped.startswith(' ') and not stripped.startswith('#'):
+            in_on = False
+            continue
+        # Two-space indented "  schedule:" is a direct on: child
+        if stripped.lstrip() == 'schedule:' and (len(stripped) - len(stripped.lstrip())) == 2:
+            print(f"Line {i}: sweeper.yml has a bare on.schedule trigger — cron must live in the caller: {stripped!r}")
+            sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$?" -eq 0 ]
 }
 
 @test "sweeper.yml: declares dry-run input" {

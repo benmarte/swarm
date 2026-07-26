@@ -305,18 +305,20 @@ jobs:
 
 ---
 
-### `sweeper.yml` — Nightly fleet auditor (SPEC §2.1/§8.2)
+### `sweeper.yml` — Nightly fleet auditor (SPEC §2.1/§2.2/§8.2)
 
-Runs nightly (default: `0 2 * * *`) or on `workflow_dispatch`. Gathers all open
-issues with `swarm:*` labels, runs the **orchestrator** agent to audit for stalls,
-and applies `swarm:needs-human` to stuck issues.
+Per SPEC §2.2, all swarm reusable workflows use `on: workflow_call` — consumers
+pin `@v1` and own their own cron trigger. Gathers all open issues with `swarm:*`
+labels, runs the **orchestrator** agent to audit for stalls, and applies
+`swarm:needs-human` to stuck issues.
 
 > **IMPORTANT (SPEC §8.2):** The sweeper NEVER touches `swarm:paused`. The only
 > label the escalate job may add is `swarm:needs-human`. This constraint is
 > structurally enforced by the workflow and verified by `tests/sweeper.bats`.
 
-> **Not a `workflow_call`:** The sweeper is a fleet-level auditor, not an
-> issue-scoped reusable workflow. Consumers wire it directly as a cron job.
+> **`workflow_dispatch` is also declared** for manual triggering inside the swarm
+> repo itself (development / one-shot audits). The `schedule:` trigger lives
+> **only in the caller workflow** — it is not declared here.
 
 **Inputs (workflow_dispatch + schedule env defaults):**
 
