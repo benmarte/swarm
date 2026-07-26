@@ -1,0 +1,10 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "security",
+  "verdict": "pass",
+  "refs": { "issue": 2, "pr": 14 },
+  "evidence": {
+    "summary": "No secrets committed; schemas are read-only artifacts; validate-outcome never mutates state.",
+    "threat_model_checks": ["no secret in schema", "no state mutation in action", "ajv-cli pinned to exact version"]
+  }
+}

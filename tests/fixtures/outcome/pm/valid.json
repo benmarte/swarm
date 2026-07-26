@@ -1,0 +1,11 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "pm",
+  "verdict": "spec",
+  "refs": { "issue": 2, "pr": null },
+  "evidence": {
+    "summary": "PM spec written and posted as issue comment.",
+    "ac_count": 8
+  },
+  "notes": "Branch name: feat/issue-2-contracts-schemas"
+}

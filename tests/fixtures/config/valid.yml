@@ -1,0 +1,16 @@
+{
+  "notify": {
+    "buzz_channel": "abc123-channel-uuid",
+    "slack": true,
+    "discord": false
+  },
+  "adapters": {
+    "validator": { "adapter": "claude", "model": "claude-opus-4-5" },
+    "pm": { "adapter": "openai-compat", "model": "llama3.1" }
+  },
+  "develop": { "adapter": "claude-code-action" },
+  "SWARM_LLM_BASE_URL": "http://localhost:11434/v1",
+  "qa": { "required_checks": ["CI / ci", "actionlint"] },
+  "runner": { "label": "swarm-agent" },
+  "sweeper": { "schedule": "0 2 * * *" }
+}

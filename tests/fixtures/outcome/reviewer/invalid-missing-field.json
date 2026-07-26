@@ -1,0 +1,6 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "reviewer",
+  "verdict": "approve",
+  "evidence": { "summary": "Missing refs.issue." }
+}

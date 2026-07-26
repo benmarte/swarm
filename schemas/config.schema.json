@@ -1,0 +1,128 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "swarm/config@1",
+  "title": "Swarm Consumer Config",
+  "description": "Schema for swarm.config.yml committed in consumer repos. Per SPEC §2.6. Secrets (SWARM_BUZZ_RELAY_URL, SWARM_BUZZ_PRIVATE_KEY, etc.) MUST NOT appear here — they live in .env / GitHub Secrets.",
+  "type": "object",
+  "required": [],
+  "additionalProperties": false,
+  "properties": {
+    "notify": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "buzz_channel": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Nostr/NIP-29 channel UUID for buzz notifications. Behavior config — not a secret."
+        },
+        "slack": {
+          "type": "boolean",
+          "description": "Enable Slack notifier adapter."
+        },
+        "discord": {
+          "type": "boolean",
+          "description": "Enable Discord notifier adapter."
+        },
+        "teams": {
+          "type": "boolean",
+          "description": "Enable Teams notifier adapter."
+        }
+      }
+    },
+    "adapters": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-role agent-run adapter overrides.",
+      "properties": {
+        "validator": { "$ref": "#/definitions/adapter-config" },
+        "pm": { "$ref": "#/definitions/adapter-config" },
+        "reviewer": { "$ref": "#/definitions/adapter-config" },
+        "security": { "$ref": "#/definitions/adapter-config" },
+        "docs": { "$ref": "#/definitions/adapter-config" },
+        "orchestrator": { "$ref": "#/definitions/adapter-config" }
+      }
+    },
+    "develop": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Develop-stage adapter configuration.",
+      "properties": {
+        "adapter": {
+          "type": "string",
+          "enum": ["claude-code-action", "headless"]
+        }
+      }
+    },
+    "SWARM_LLM_BASE_URL": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Base URL for OpenAI-compatible LLM endpoint (Ollama, LM Studio, vLLM). Not a secret."
+    },
+    "qa": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required_checks": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "description": "List of required check names that must pass before merge."
+        }
+      }
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "GitHub Actions runner label for agent jobs (e.g. swarm-agent)."
+        }
+      }
+    },
+    "sweeper": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schedule": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Cron schedule expression for the sweeper (e.g. '0 2 * * *')."
+        }
+      }
+    }
+  },
+  "not": {
+    "anyOf": [
+      { "required": ["SWARM_BUZZ_RELAY_URL"] },
+      { "required": ["SWARM_BUZZ_PRIVATE_KEY"] },
+      { "required": ["SWARM_GITHUB_TOKEN"] },
+      { "required": ["SWARM_SLACK_WEBHOOK"] },
+      { "required": ["SWARM_DISCORD_WEBHOOK"] },
+      { "required": ["SWARM_TEAMS_WEBHOOK"] },
+      { "required": ["ANTHROPIC_API_KEY"] },
+      { "required": ["SWARM_LLM_API_KEY"] },
+      { "required": ["SWARM_TOKEN"] }
+    ]
+  },
+  "definitions": {
+    "adapter-config": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "type": "string",
+          "enum": ["claude", "openai-compat"],
+          "description": "Adapter name for this role."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Model identifier to use with this adapter."
+        }
+      }
+    }
+  }
+}

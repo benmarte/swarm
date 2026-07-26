@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "swarm/event@1",
+  "title": "Swarm Event",
+  "description": "Notifier payload emitted by the transition composite action and consumed by notify adapters. Per SPEC §2.4.",
+  "type": "object",
+  "required": ["event", "repo", "issue", "pr", "stage_from", "stage_to", "actor", "url", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "event": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "issue": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "pr": {
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
+    "stage_from": {
+      "type": "string"
+    },
+    "stage_to": {
+      "type": "string"
+    },
+    "actor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "url": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

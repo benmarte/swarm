@@ -1,0 +1,7 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "orchestrator",
+  "verdict": "report",
+  "refs": {},
+  "evidence": { "summary": "refs.issue is missing (empty refs object)." }
+}

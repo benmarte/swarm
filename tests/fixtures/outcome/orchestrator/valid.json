@@ -1,0 +1,11 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "orchestrator",
+  "verdict": "report",
+  "refs": { "issue": 2 },
+  "evidence": {
+    "summary": "Nightly sweep: no stuck issues found. All active issues have stage labels within SLA.",
+    "checked_issues": [1, 2, 3],
+    "stuck": []
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "validator",
+  "verdict": "confirmed",
+  "refs": { "issue": 2 },
+  "evidence": {
+    "summary": "Issue is valid and actionable; scaffold is in place per SPEC §2.4.",
+    "checks": ["no duplicate found", "acceptance criteria are clear"]
+  },
+  "notes": "Proceed to spec stage."
+}
