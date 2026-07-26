@@ -1,0 +1,44 @@
+name: Notify
+description: >
+  Fan-out a canonical swarm event JSON to configured notification sinks
+  (Slack, Buzz, Discord, Teams). Validates the event against
+  schemas/event.schema.json before any delivery. A missing required secret
+  for a configured-but-missing sink is a hard job failure (loud). Requires
+  ajv-cli@5.0.0 (installed by validate-outcome action or standalone).
+
+inputs:
+  event-file:
+    description: Path to a canonical event JSON file (schemas/event.schema.json).
+    required: true
+  enabled-sinks:
+    description: >
+      Comma-separated list of sinks to deliver to: slack, buzz, discord, teams.
+      Pass an empty string or omit to no-op.
+    required: false
+    default: ""
+  buzz-channel:
+    description: >
+      Nostr/NIP-29 channel UUID for buzz notifications (from swarm.config.yml
+      notify.buzz_channel). Not a secret — this is behavior config.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install ajv-cli@5.0.0
+      shell: bash
+      run: npm install -g ajv-cli@5.0.0
+
+    - name: Fan-out event to enabled sinks
+      shell: bash
+      env:
+        EVENT_FILE: ${{ inputs.event-file }}
+        ENABLED_SINKS: ${{ inputs.enabled-sinks }}
+        BUZZ_CHANNEL: ${{ inputs.buzz-channel }}
+        SWARM_SLACK_WEBHOOK: ${{ env.SWARM_SLACK_WEBHOOK }}
+        SWARM_DISCORD_WEBHOOK: ${{ env.SWARM_DISCORD_WEBHOOK }}
+        SWARM_TEAMS_WEBHOOK: ${{ env.SWARM_TEAMS_WEBHOOK }}
+        SWARM_BUZZ_RELAY_URL: ${{ env.SWARM_BUZZ_RELAY_URL }}
+        SWARM_BUZZ_PRIVATE_KEY: ${{ env.SWARM_BUZZ_PRIVATE_KEY }}
+      run: bash "${{ github.action_path }}/notify.sh"

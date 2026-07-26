@@ -52,14 +52,15 @@ teardown() {
   grep -q "POST.*comments" "$GH_STUB_LOG"
 }
 
-@test "normal transition: logs notify stub when notify not on PATH" {
+@test "normal transition: logs notify no-op when ENABLED_SINKS not set" {
   export FROM_STAGE="swarm:go"
   export TO_STAGE="swarm:spec"
   export GH_STUB_LABELS_JSON='[{"name":"swarm:go"}]'
+  unset ENABLED_SINKS
 
   run bash "$TRANSITION_SH"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"notify: stub (#4 pending)"* ]]
+  [[ "$output" == *"notify: no sinks configured"* ]]
 }
 
 # ---------------------------------------------------------------------------

@@ -121,17 +121,39 @@ if [ "$POST_COMMENT" = "true" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Notify hook (stub until #4 lands)
+# Notify fan-out
 # ---------------------------------------------------------------------------
-if [ -d "${GITHUB_ACTION_PATH:-}/../notify" ] || command -v notify >/dev/null 2>&1; then
-  notify \
-    --event "stage_transition" \
-    --issue "${ISSUE_NUMBER}" \
-    --from "${FROM_STAGE}" \
-    --to "${TO_STAGE}" \
-    --repo "${GITHUB_REPOSITORY}" || true
+# NOTIFY_SCRIPT defaults to the real notify.sh sitting next to this action.
+# Tests can override it via NOTIFY_SCRIPT=<stub-path> to keep bats hermetic.
+NOTIFY_SCRIPT="${NOTIFY_SCRIPT:-${GITHUB_ACTION_PATH:-$(cd "$(dirname "$0")" && pwd)}/../notify/notify.sh}"
+
+if [ -n "${ENABLED_SINKS:-}" ] && [ -f "$NOTIFY_SCRIPT" ]; then
+  # Build the canonical event JSON and pass it to the notify action script.
+  EVENT_FILE="$(mktemp)"
+  jq -n \
+    --arg event "stage_transition" \
+    --arg repo "${GITHUB_REPOSITORY}" \
+    --argjson issue "${ISSUE_NUMBER}" \
+    --arg stage_from "${FROM_STAGE}" \
+    --arg stage_to "${TO_STAGE}" \
+    --arg actor "${GITHUB_ACTOR:-swarm}" \
+    --arg url "https://github.com/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" \
+    --arg summary "Issue #${ISSUE_NUMBER}: ${FROM_STAGE} → ${TO_STAGE}" \
+    '{
+      event: $event,
+      repo: $repo,
+      issue: $issue,
+      pr: null,
+      stage_from: $stage_from,
+      stage_to: $stage_to,
+      actor: $actor,
+      url: $url,
+      summary: $summary
+    }' > "$EVENT_FILE"
+  EVENT_FILE="$EVENT_FILE" bash "$NOTIFY_SCRIPT"
+  rm -f "$EVENT_FILE"
 else
-  echo "transition: notify: stub (#4 pending)"
+  echo "transition: notify: no sinks configured (ENABLED_SINKS not set)"
 fi
 
 echo "transition: done — issue #${ISSUE_NUMBER} transitioned '${FROM_STAGE}' → '${TO_STAGE}'."

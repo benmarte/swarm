@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Stub curl for bats tests.
+# Records every invocation (with arguments) to $CURL_STUB_LOG.
+# Records the request body (-d / --data) to $CURL_BODY_LOG (one payload per line, JSON).
+# Returns CURL_STUB_STATUS exit code (default 0).
+# If CURL_STUB_RESPONSE is set, prints it; otherwise silent.
+
+LOG="${CURL_STUB_LOG:-/tmp/curl-stub.log}"
+BODY_LOG="${CURL_BODY_LOG:-/tmp/curl-body.log}"
+
+# Record full argv
+echo "curl $*" >> "$LOG"
+
+# Extract -d / --data value from argv
+args=("$@")
+body=""
+i=0
+while [ $i -lt ${#args[@]} ]; do
+  arg="${args[$i]}"
+  case "$arg" in
+    -d|--data)
+      i=$((i+1))
+      body="${args[$i]:-}"
+      ;;
+    -d*)
+      body="${arg#-d}"
+      ;;
+  esac
+  i=$((i+1))
+done
+
+if [ -n "$body" ]; then
+  echo "$body" >> "$BODY_LOG"
+fi
+
+if [ -n "${CURL_STUB_RESPONSE:-}" ]; then
+  echo "$CURL_STUB_RESPONSE"
+fi
+
+exit "${CURL_STUB_STATUS:-0}"
