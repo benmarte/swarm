@@ -1,14 +1,16 @@
 # actions/bump-attempts/
 
-Composite action — reads and increments the `swarm:attempts:N` label on an issue.
+Composite action — reads and increments the `swarm:attempts:N` label on an issue, escalating to human review at the limit.
 
 Behavior:
-- Reads the current `swarm:attempts:N` label (N defaults to 0 if absent)
+- Reads the current `swarm:attempts:N` label (N=0 if absent)
 - Removes the current label, adds `swarm:attempts:<N+1>`
-- If N+1 reaches the configured limit (default 3): applies `swarm:needs-human`, assigns the repo maintainer, and calls `notify` to alert configured sinks
+- Labels are drawn from a fixed allowlist: `swarm:attempts:1`, `swarm:attempts:2`, `swarm:attempts:3`
+- At N=3 (the hard limit): applies `swarm:needs-human`, assigns `maintainer`, posts an escalation comment, emits an escalation event JSON to `$RUNNER_TEMP/escalation-event.json`, and invokes the `notify` hook (stub until #4 lands)
+- Already-at-limit calls exit 0 without further action (idempotent)
 
-Inputs: `issue-number`, `limit` (default 3), `assignee`
+Inputs: `issue-number`, `maintainer`, `post-comment` (default `true`)
 
-The limit boundary is: `< limit` → increment and re-enter the fix loop; `== limit` → escalate to human. The pipeline never makes more than `limit` automated fix attempts.
+The attempt limit is fixed at 3. The pipeline never makes more than 3 automated fix attempts per issue.
 
-**Not yet implemented** — scaffold placeholder for issue #1.
+Required job permissions: `issues: write`, `contents: read`

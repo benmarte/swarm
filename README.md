@@ -12,7 +12,7 @@ Reusable GitHub Actions workflows + composite actions that turn any repo into a 
 
 🚧 Under construction — being built by [Talos](https://github.com/benmarte/talos) working through this repo's issue backlog (dogfood). Prior art: Talos's `examples/github-actions/` variant and the Daedalus/Hermes pipeline swarm supersedes.
 
-Scaffold (issue #1) and contracts layer (issue #2) are merged. CI runs `scripts/verify.sh` (shellcheck + actionlint + bats) on every push and PR. Issue #2 shipped `outcome`, `event`, and `config` JSON schemas plus the `validate-outcome` composite action that enforces schema-valid output on every agent job.
+Scaffold (issue #1) and contracts layer (issue #2) are merged. CI runs `scripts/verify.sh` (shellcheck + actionlint + bats) on every push and PR. Issue #2 shipped `outcome`, `event`, and `config` JSON schemas plus the `validate-outcome` composite action that enforces schema-valid output on every agent job. Issue #3 shipped `actions/transition/` (atomic stage-label swap) and `actions/bump-attempts/` (escalation counter) with full bats test coverage.
 
 ## Repository layout
 
