@@ -1,0 +1,45 @@
+name: Transition Stage
+description: >
+  Atomically swaps one swarm stage label for another, posts a transition
+  comment, and invokes the notify hook (stub until #4 lands).
+  Idempotent: if the issue already carries to-stage (and not from-stage),
+  exits 0 as a no-op.
+
+# permissions required on the calling workflow job:
+#   issues: write        — add/remove labels, post comment
+#   contents: read       — default; needed so the action_path works
+
+inputs:
+  issue-number:
+    description: The issue number to transition.
+    required: true
+  from-stage:
+    description: >
+      The swarm stage label to remove (e.g. swarm:go).
+      Must be in the hard-coded stage allowlist.
+    required: true
+  to-stage:
+    description: >
+      The swarm stage label to add (e.g. swarm:spec).
+      Must be in the hard-coded stage allowlist.
+    required: true
+  post-comment:
+    description: Set to 'false' to suppress the transition comment.
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Run transition
+      shell: bash
+      env:
+        ISSUE_NUMBER: ${{ inputs.issue-number }}
+        FROM_STAGE: ${{ inputs.from-stage }}
+        TO_STAGE: ${{ inputs.to-stage }}
+        POST_COMMENT: ${{ inputs.post-comment }}
+        GH_TOKEN: ${{ env.GH_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        bash "$ACTION_PATH/transition.sh"
