@@ -1,0 +1,10 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "reviewer",
+  "verdict": "approve",
+  "refs": { "issue": 2, "pr": 14 },
+  "evidence": {
+    "summary": "All acceptance criteria met; schema implementation is correct.",
+    "files_reviewed": ["schemas/outcome.schema.json", "actions/validate-outcome/action.yml"]
+  }
+}

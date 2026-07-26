@@ -1,0 +1,6 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "pm",
+  "refs": { "issue": 2 },
+  "evidence": { "summary": "Missing verdict field." }
+}

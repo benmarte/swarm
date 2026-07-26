@@ -1,0 +1,7 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "docs",
+  "verdict": "report",
+  "refs": { "issue": 2 },
+  "evidence": { "summary": "Wrong verdict enum for docs role." }
+}

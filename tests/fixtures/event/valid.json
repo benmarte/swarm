@@ -1,0 +1,11 @@
+{
+  "event": "transition",
+  "repo": "benmarte/swarm",
+  "issue": 2,
+  "pr": 14,
+  "stage_from": "swarm:dev",
+  "stage_to": "swarm:review",
+  "actor": "benmarte",
+  "url": "https://github.com/benmarte/swarm/pull/14",
+  "summary": "Issue #2 moved from dev to review after PR #14 opened."
+}

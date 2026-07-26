@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "swarm/outcome@1",
+  "title": "Swarm Outcome",
+  "description": "Schema-validated agent output for the swarm pipeline. Per SPEC §2.4.",
+  "type": "object",
+  "required": ["schema", "role", "verdict", "refs", "evidence"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "swarm/outcome@1"
+    },
+    "role": {
+      "type": "string",
+      "enum": ["validator", "pm", "reviewer", "security", "docs", "orchestrator"]
+    },
+    "verdict": {
+      "type": "string"
+    },
+    "refs": {
+      "type": "object",
+      "required": ["issue"],
+      "additionalProperties": false,
+      "properties": {
+        "issue": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pr": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "if": {
+    "properties": { "role": { "const": "validator" } },
+    "required": ["role"]
+  },
+  "then": {
+    "properties": {
+      "verdict": { "enum": ["confirmed", "duplicate", "invalid", "needs-info"] }
+    }
+  },
+  "else": {
+    "if": {
+      "properties": { "role": { "const": "pm" } },
+      "required": ["role"]
+    },
+    "then": {
+      "properties": {
+        "verdict": { "enum": ["spec", "escalated"] }
+      }
+    },
+    "else": {
+      "if": {
+        "properties": { "role": { "const": "reviewer" } },
+        "required": ["role"]
+      },
+      "then": {
+        "properties": {
+          "verdict": { "enum": ["approve", "request-changes"] }
+        }
+      },
+      "else": {
+        "if": {
+          "properties": { "role": { "const": "security" } },
+          "required": ["role"]
+        },
+        "then": {
+          "properties": {
+            "verdict": { "enum": ["pass", "fail", "advisory"] }
+          }
+        },
+        "else": {
+          "if": {
+            "properties": { "role": { "const": "docs" } },
+            "required": ["role"]
+          },
+          "then": {
+            "properties": {
+              "verdict": { "enum": ["done", "skipped"] }
+            }
+          },
+          "else": {
+            "if": {
+              "properties": { "role": { "const": "orchestrator" } },
+              "required": ["role"]
+            },
+            "then": {
+              "properties": {
+                "verdict": { "enum": ["report"] }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

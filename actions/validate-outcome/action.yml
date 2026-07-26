@@ -1,0 +1,28 @@
+name: Validate Outcome
+description: >
+  Validates a swarm outcome JSON file against schemas/outcome.schema.json
+  using ajv-cli (pinned to 5.0.0). Fails the job with an actionable message
+  on invalid input. Never mutates state.
+
+inputs:
+  outcome-file:
+    description: Path to the outcome JSON file to validate.
+    required: true
+    default: outcome.json
+
+runs:
+  using: composite
+  steps:
+    - name: Install ajv-cli@5.0.0
+      shell: bash
+      run: npm install -g ajv-cli@5.0.0
+
+    - name: Validate outcome against schema
+      shell: bash
+      env:
+        OUTCOME_FILE: ${{ inputs.outcome-file }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        bash "$ACTION_PATH/validate.sh" \
+          "$OUTCOME_FILE" \
+          "$ACTION_PATH/../../schemas/outcome.schema.json"

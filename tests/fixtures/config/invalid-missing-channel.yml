@@ -1,0 +1,7 @@
+{
+  "notify": {
+    "buzz_channel": 12345,
+    "slack": true
+  },
+  "runner": { "label": "swarm-agent" }
+}

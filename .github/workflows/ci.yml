@@ -20,5 +20,6 @@ jobs:
           curl -sL https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz \
             | sudo tar xz -C /usr/local/bin actionlint
           sudo npm install -g bats
+          sudo npm install -g ajv-cli@5.0.0
       - name: Run verify gate
         run: bash scripts/verify.sh

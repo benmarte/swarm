@@ -1,0 +1,10 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "docs",
+  "verdict": "done",
+  "refs": { "issue": 2, "pr": 14 },
+  "evidence": {
+    "summary": "Documentation written; runner-contract.md and schema README updated.",
+    "files": ["schemas/runner-contract.md", "schemas/README.md"]
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "role": "docs",
+  "verdict": "done",
+  "refs": { "issue": 2 },
+  "evidence": { "summary": "Missing schema field." }
+}

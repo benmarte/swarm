@@ -1,0 +1,6 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "validator",
+  "verdict": "confirmed",
+  "evidence": { "summary": "Missing refs field." }
+}

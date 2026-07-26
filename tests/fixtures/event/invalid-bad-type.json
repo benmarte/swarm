@@ -1,0 +1,11 @@
+{
+  "event": "transition",
+  "repo": "benmarte/swarm",
+  "issue": "two",
+  "pr": null,
+  "stage_from": "swarm:dev",
+  "stage_to": "swarm:review",
+  "actor": "benmarte",
+  "url": "https://github.com/benmarte/swarm/pull/14",
+  "summary": "Issue field is a string instead of integer."
+}
