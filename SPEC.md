@@ -60,7 +60,7 @@ Every issue-scoped job runs under `concurrency: swarm-${{ issue.number }}` — t
 - `validate-outcome` — validates `outcome.json` against `schemas/outcome.schema.json` with `ajv-cli` (pinned). Invalid → job fails → Actions-level retry/fix loop. No prefix parsing, ever.
 - `transition` — atomic label swap + transition comment + `notify` fan-out. Sole writer of stage labels.
 - `bump-attempts` — reads/increments `swarm:attempts:N`; at limit applies `swarm:needs-human`, assigns the maintainer, notifies.
-- `notify` — takes a canonical event JSON, posts to each configured sink adapter: `slack`, `buzz`, `discord`, `teams` (all outbound webhook POSTs; payload mapping per adapter under `actions/notify/adapters/`).
+- `notify` — takes a canonical event JSON, posts to each configured sink adapter: `slack`, `buzz`, `discord`, `teams` (payload mapping per adapter under `actions/notify/adapters/`). Slack/Discord/Teams are outbound webhook POSTs. Buzz ([block/buzz](https://github.com/block/buzz)) is a Nostr/NIP-29 relay with no incoming webhooks: `buzz.sh` publishes a signed `kind:9` event tagged `["h", <channel-uuid>]` via the `nak` CLI (`--auth` answers NIP-42), same mechanism as Talos's buzz sink — requires `nak` installed on the self-hosted runner.
 
 ### 2.4 Contracts (in `schemas/`, versioned)
 
@@ -79,7 +79,7 @@ Every issue-scoped job runs under `concurrency: swarm-${{ issue.number }}` — t
 Two files, one rule: **behavior is committed, secrets never are.**
 
 - **`swarm.config.yml`** (committed in the consumer repo, schema-validated): enabled notifiers, `agent-run` adapter + model per role, develop adapter, `SWARM_LLM_BASE_URL`, QA required-check names, runner label, sweeper schedule. Workflows read it via a `load-config` step; changing behavior is a normal reviewed commit.
-- **`.env`** (local only, gitignored, from `.env.example`): every credential — `SWARM_GITHUB_TOKEN`, `SWARM_SLACK_WEBHOOK`, `SWARM_BUZZ_WEBHOOK`, `SWARM_DISCORD_WEBHOOK`, `SWARM_TEAMS_WEBHOOK`, `ANTHROPIC_API_KEY`, `SWARM_LLM_API_KEY`, plus reserved names for v2 forges (`SWARM_GITLAB_TOKEN`, `SWARM_AZURE_TOKEN`). `scripts/bootstrap.sh --env-file .env` seeds them into GitHub Secrets (`gh secret set`), reports missing/extra keys against `.env.example`, and never echoes values. Rotating a key = edit `.env`, re-run bootstrap.
+- **`.env`** (local only, gitignored, from `.env.example`): every credential — `SWARM_GITHUB_TOKEN`, `SWARM_SLACK_WEBHOOK`, `SWARM_DISCORD_WEBHOOK`, `SWARM_TEAMS_WEBHOOK`, `SWARM_BUZZ_RELAY_URL` + `SWARM_BUZZ_PRIVATE_KEY` (buzz has no webhooks — relay URL + Nostr bot key; the channel UUID is behavior, so it lives in `swarm.config.yml` as `notify.buzz_channel`), `ANTHROPIC_API_KEY`, `SWARM_LLM_API_KEY`, plus reserved names for v2 forges (`SWARM_GITLAB_TOKEN`, `SWARM_AZURE_TOKEN`). `scripts/bootstrap.sh --env-file .env` seeds them into GitHub Secrets (`gh secret set`), reports missing/extra keys against `.env.example`, and never echoes values. Rotating a key = edit `.env`, re-run bootstrap.
 - At runtime, workflows consume secrets **only** from GitHub Secrets (masked in logs); the `.env` file is a provisioning input, not a runtime dependency. The same `.env` naming convention becomes the provisioning source for GitLab CI variables / ADO variable groups when those ports land, so consumer config is forge-portable even though the engine isn't yet.
 
 ### 2.7 Consumer adoption (dycotomic slice)
