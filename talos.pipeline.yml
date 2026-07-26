@@ -1,0 +1,49 @@
+# talos.pipeline.yml — Talos builds swarm from its own issue backlog (dogfood).
+# See talos.pipeline.yml.example in the talos repo for full field docs.
+
+repo: benmarte/swarm
+base_branch: main
+
+vcs:
+  provider: github
+
+board:
+  enabled: false                  # label-only state; no Projects board for this repo
+
+# Gate before any PR opens. verify.sh is tool-strict: missing shellcheck/
+# actionlint/bats is a FAILURE (brew install shellcheck actionlint bats-core).
+verify:
+  - bash scripts/verify.sh
+
+merge:
+  method: squash
+  required_checks:
+    - ci                          # job id in .github/workflows/ci.yml (issue #1 creates it — keep the id exactly `ci`)
+  delete_branch: true
+
+issues:
+  label_filter: "pipeline:ready"
+  skip_labels:
+    - "pipeline:blocked"
+    - "backlog"                   # parking label for issues not yet actionable (e.g. dycotomic adoption)
+  max_parallel: 1                 # strict sequential build — later issues depend on earlier contracts
+
+roles:
+  validator: true
+  pm: true
+  qa: true
+  reviewer: true
+  security: true
+  docs: true
+  planner: false
+
+comments:
+  enabled: true
+  header: "**Agent:** {role} (talos)"
+
+# Notifications intentionally unconfigured for now — pipeline-notify.sh is a
+# silent no-op without credentials + channel. To enable, add slack_channel /
+# discord_channel here and tokens per the talos user guide.
+
+limits:
+  max_fix_attempts: 3
