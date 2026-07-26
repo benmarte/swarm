@@ -116,14 +116,16 @@ echo "headless adapter: spec=$SPEC_FILE worktree=${WORKTREE:-.}"
 # ---------------------------------------------------------------------------
 # Invoke the coding CLI
 # ---------------------------------------------------------------------------
-# The ADAPTER_CMD may contain arguments (e.g. "claude -p"), so we use eval
-# with the prompt passed via a temp file available as SWARM_PROMPT_FILE env.
-# CLIs that take a prompt as argument: pass $tmp_prompt content
-# CLIs that take --prompt-file: callers should set ADAPTER_CMD to include it
+# ADAPTER_CMD may contain arguments (e.g. "claude -p", "aider --yes-always").
+# Split on whitespace into an array — no shell interpretation of metacharacters
+# in ADAPTER_CMD — and append the prompt file path as the final argument.
 #
-# Default: append the prompt file path as the last argument.
-# Override: set ADAPTER_CMD to end with a flag that expects the prompt file,
+# This prevents RCE via shell metacharacters (e.g. "echo hi; rm -rf /") in a
+# consumer-supplied ADAPTER_CMD derived from untrusted content.
+#
+# CLIs that take --prompt-file: set ADAPTER_CMD to end with the flag,
 #   e.g. ADAPTER_CMD="aider --yes-always --message-file"
+# The prompt file path is always appended as the next (last) argument.
 export SWARM_PROMPT_FILE="$tmp_prompt"
 export ISSUE_NUMBER
 export SPEC_FILE
@@ -132,7 +134,10 @@ export SWARM_LLM_MODEL
 # Run in the worktree directory
 cd "${WORKTREE:-.}"
 
-if ! eval "$ADAPTER_CMD" "$tmp_prompt"; then
+# Word-split ADAPTER_CMD into an array without invoking a shell (no eval).
+read -ra _adapter_arr <<< "$ADAPTER_CMD"
+
+if ! "${_adapter_arr[@]}" "$tmp_prompt"; then
   echo "headless adapter: ERROR: '$ADAPTER_CMD' exited non-zero" >&2
   rm -f "$tmp_prompt"
   exit 1

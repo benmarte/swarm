@@ -105,16 +105,48 @@ if [ "$DRY_RUN" = "true" ]; then
   printf 'dry-run: would write docs/specs/issue-%s.md\n' "$ISSUE_NUMBER"
   if [ "$ADAPTER" = "headless" ]; then
     printf 'dry-run: would invoke headless adapter with ADAPTER_CMD=%s\n' "${ADAPTER_CMD:-<unset>}"
-    printf 'dry-run: would commit, push, and open PR on %s\n' "$GITHUB_REPOSITORY"
   else
-    printf 'dry-run: claude-code-action step ran before engine; would verify PR and transition\n'
+    printf 'dry-run: claude-code-action step (in develop.yml) edits working tree; engine then commits\n'
   fi
+  printf 'dry-run: would commit, push, and open PR on %s\n' "$GITHUB_REPOSITORY"
   printf 'dry-run: would transition issue #%s from swarm:develop to swarm:qa\n' "$ISSUE_NUMBER"
   exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# HEADLESS ADAPTER PATH: engine owns all git + PR operations
+# ENGINE: git identity, branch, spec write — same for both adapters
+# ---------------------------------------------------------------------------
+
+# -- git identity ----------------------------------------------------------
+git config user.email "swarm-bot@users.noreply.github.com"
+git config user.name "swarm-bot"
+echo "develop-run: git identity configured as swarm-bot"
+
+# -- create or resume branch -----------------------------------------------
+# Check remote first (covers re-runs after a failed push where local ref may
+# not yet exist, and cases where another runner pre-created the branch).
+if git ls-remote --exit-code --heads origin "$BRANCH_NAME" >/dev/null 2>&1; then
+  echo "develop-run: branch $BRANCH_NAME exists on origin; checking out from remote"
+  git checkout -b "$BRANCH_NAME" "origin/$BRANCH_NAME" 2>/dev/null \
+    || git checkout "$BRANCH_NAME"
+elif git show-ref --verify --quiet "refs/heads/$BRANCH_NAME" 2>/dev/null; then
+  echo "develop-run: branch $BRANCH_NAME exists locally; checking it out"
+  git checkout "$BRANCH_NAME"
+else
+  echo "develop-run: creating branch $BRANCH_NAME from origin/$BASE_BRANCH"
+  git checkout -b "$BRANCH_NAME" "origin/$BASE_BRANCH"
+fi
+
+# -- write spec file -------------------------------------------------------
+spec_dir="docs/specs"
+spec_md="$spec_dir/issue-$ISSUE_NUMBER.md"
+mkdir -p "$spec_dir"
+printf '%s\n' "$spec_content" > "$spec_md"
+git add "$spec_md"
+echo "develop-run: spec written to $spec_md"
+
+# ---------------------------------------------------------------------------
+# ADAPTER DISPATCH: invoke coding agent to edit the working tree
 # ---------------------------------------------------------------------------
 if [ "$ADAPTER" = "headless" ]; then
 
@@ -130,29 +162,6 @@ if [ "$ADAPTER" = "headless" ]; then
     exit 1
   fi
 
-  # -- git identity --------------------------------------------------------
-  git config user.email "swarm-bot@users.noreply.github.com"
-  git config user.name "swarm-bot"
-  echo "develop-run: git identity configured as swarm-bot"
-
-  # -- create branch from base --------------------------------------------
-  if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME" 2>/dev/null; then
-    echo "develop-run: branch $BRANCH_NAME already exists; checking it out"
-    git checkout "$BRANCH_NAME"
-  else
-    echo "develop-run: creating branch $BRANCH_NAME from origin/$BASE_BRANCH"
-    git checkout -b "$BRANCH_NAME" "origin/$BASE_BRANCH"
-  fi
-
-  # -- write spec file -----------------------------------------------------
-  spec_dir="docs/specs"
-  spec_md="$spec_dir/issue-$ISSUE_NUMBER.md"
-  mkdir -p "$spec_dir"
-  printf '%s\n' "$spec_content" > "$spec_md"
-  git add "$spec_md"
-  echo "develop-run: spec written to $spec_md"
-
-  # -- invoke adapter ------------------------------------------------------
   echo "develop-run: invoking headless adapter"
   export WORKTREE="."
   export ISSUE_NUMBER
@@ -160,48 +169,58 @@ if [ "$ADAPTER" = "headless" ]; then
   export SWARM_LLM_MODEL="$MODEL"
 
   bash "$ADAPTER_SCRIPT"
-  echo "develop-run: adapter completed"
+  echo "develop-run: headless adapter completed"
 
-  # -- detect diff ---------------------------------------------------------
-  # Stage all changes the adapter made (spec file was already staged above)
-  git add -A
+else
+  # claude-code-action: the action step in develop.yml already edited the
+  # working tree (file-edit mode, create_pull_request=false).  The engine
+  # now owns commit, push, and PR creation — same path as headless.
+  echo "develop-run: claude-code-action edits applied; engine taking over git/PR steps"
+fi
 
-  if git diff --cached --quiet; then
-    echo "develop-run: ERROR: adapter produced no changes in the working tree" >&2
-    echo "develop-run: bumping attempts (no-diff failure)" >&2
-    export GITHUB_REPOSITORY
-    export GH_TOKEN
-    export ISSUE_NUMBER
-    export MAINTAINER
-    export POST_COMMENT="true"
-    export RUNNER_TEMP="${RUNNER_TEMP:-/tmp}"
-    bash "$BUMP_ATTEMPTS_SH"
-    exit 1
-  fi
+# ---------------------------------------------------------------------------
+# DETECT DIFF, COMMIT, PUSH, PR CREATE — engine-owns-everything for all adapters
+# ---------------------------------------------------------------------------
 
-  echo "develop-run: diff detected — committing"
+# -- detect diff -----------------------------------------------------------
+# Stage all changes made by the adapter (spec file was already staged above)
+git add -A
 
-  # -- commit --------------------------------------------------------------
-  model_tag="${MODEL:+ model=$MODEL}"
-  git commit -m "feat: implement issue #$ISSUE_NUMBER [adapter=$ADAPTER${model_tag}]"
+if git diff --cached --quiet; then
+  echo "develop-run: ERROR: adapter produced no changes in the working tree" >&2
+  echo "develop-run: bumping attempts (no-diff failure)" >&2
+  export GITHUB_REPOSITORY
+  export GH_TOKEN
+  export ISSUE_NUMBER
+  export MAINTAINER
+  export POST_COMMENT="true"
+  export RUNNER_TEMP="${RUNNER_TEMP:-/tmp}"
+  bash "$BUMP_ATTEMPTS_SH"
+  exit 1
+fi
 
-  # -- push ----------------------------------------------------------------
-  echo "develop-run: pushing branch $BRANCH_NAME"
-  git push -u origin "$BRANCH_NAME"
+echo "develop-run: diff detected — committing"
 
-  # -- derive PR title from spec -------------------------------------------
-  # Use the first h1 heading if present; fall back to generic title
-  pr_title=""
-  if [ -n "$spec_content" ]; then
-    pr_title="$(printf '%s' "$spec_content" | grep -m1 '^# ' | sed 's/^# //' || true)"
-  fi
-  if [ -z "$pr_title" ]; then
-    pr_title="feat: implement issue #$ISSUE_NUMBER"
-  fi
+# -- commit ----------------------------------------------------------------
+model_tag="${MODEL:+ model=$MODEL}"
+git commit -m "feat: implement issue #$ISSUE_NUMBER [adapter=$ADAPTER${model_tag}]"
 
-  # -- gh pr create --------------------------------------------------------
-  repo_owner="${GITHUB_REPOSITORY%%/*}"
-  pr_body="$(cat <<EOF
+# -- push ------------------------------------------------------------------
+echo "develop-run: pushing branch $BRANCH_NAME"
+git push -u origin "$BRANCH_NAME"
+
+# -- derive PR title from spec ---------------------------------------------
+# Use the first h1 heading if present; fall back to generic title
+pr_title=""
+if [ -n "$spec_content" ]; then
+  pr_title="$(printf '%s' "$spec_content" | grep -m1 '^# ' | sed 's/^# //' || true)"
+fi
+if [ -z "$pr_title" ]; then
+  pr_title="feat: implement issue #$ISSUE_NUMBER"
+fi
+
+# -- gh pr create ----------------------------------------------------------
+pr_body="$(cat <<EOF
 Automated implementation of issue #${ISSUE_NUMBER} by the swarm develop pipeline.
 
 **Adapter:** ${ADAPTER}
@@ -211,25 +230,15 @@ Closes #${ISSUE_NUMBER}
 EOF
 )"
 
-  echo "develop-run: creating PR on $GITHUB_REPOSITORY"
-  gh_pr_url="$(gh pr create \
-    --base "$BASE_BRANCH" \
-    --head "$BRANCH_NAME" \
-    --title "$pr_title" \
-    --body "$pr_body" \
-    --repo "$GITHUB_REPOSITORY" 2>&1 || true)"
+echo "develop-run: creating PR on $GITHUB_REPOSITORY"
+gh_pr_url="$(gh pr create \
+  --base "$BASE_BRANCH" \
+  --head "$BRANCH_NAME" \
+  --title "$pr_title" \
+  --body "$pr_body" \
+  --repo "$GITHUB_REPOSITORY" 2>&1 || true)"
 
-  echo "develop-run: gh pr create output: $gh_pr_url"
-
-fi  # end headless path
-
-# ---------------------------------------------------------------------------
-# CLAUDE-CODE-ACTION PATH: action ran before engine; resolve branch/PR
-# ---------------------------------------------------------------------------
-if [ "$ADAPTER" = "claude-code-action" ]; then
-  BRANCH_NAME="swarm/issue-$ISSUE_NUMBER"
-  echo "develop-run: claude-code-action adapter — verifying PR created by action step"
-fi
+echo "develop-run: gh pr create output: $gh_pr_url"
 
 # ---------------------------------------------------------------------------
 # VERIFY PR EXISTS via gh api (never trust adapter/gh-pr-create output)

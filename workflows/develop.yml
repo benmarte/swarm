@@ -186,8 +186,10 @@ jobs:
       # For headless:            engine does git config, branch, spec write,
       #                          adapter invocation, commit, push, PR create,
       #                          PR verify, and transition.
-      # For claude-code-action:  engine skips its own git/push/PR steps;
-      #                          only verifies the PR and transitions the issue.
+      # For claude-code-action:  action edits working tree (file-edit mode,
+      #                          create_pull_request=false); engine then runs
+      #                          the same commit/push/PR-create/verify/transition
+      #                          path as headless — engine-owns-everything.
       - name: Run develop engine
         uses: ./actions/develop-run
         with:

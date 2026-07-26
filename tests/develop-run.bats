@@ -475,3 +475,112 @@ PROBE
 
   rm -f "$spec_file" "$env_probe"
 }
+
+@test "headless adapter: multi-word ADAPTER_CMD (with flags) works without eval" {
+  # Verifies that word-split via read -ra correctly handles multi-word commands
+  # like "bash /path/to/script" or "claude -p --model gpt-4".
+  spec_file="$(mktemp)"
+  printf '# Spec\n\nMulti-word test.\n' > "$spec_file"
+
+  # A script that just exits 0 — it will be called as "bash <script>"
+  stub_script="$(mktemp)"
+  printf '#!/usr/bin/env bash\nprintf "multi-word-stub ran\n"\nexit 0\n' > "$stub_script"
+  chmod +x "$stub_script"
+
+  export SPEC_FILE="$spec_file"
+  export WORKTREE="$WORK_DIR"
+  export ADAPTER_CMD="bash $stub_script"
+  export ISSUE_NUMBER="42"
+  export SWARM_LLM_MODEL=""
+
+  run bash "$HEADLESS_ADAPTER"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"multi-word-stub ran"* ]] || [[ "$output" == *"complete"* ]]
+
+  rm -f "$spec_file" "$stub_script"
+}
+
+@test "headless adapter: shell metacharacters in ADAPTER_CMD are NOT interpreted" {
+  # A malicious ADAPTER_CMD containing shell metacharacters must NOT cause
+  # execution of the injected command.  With array expansion (no eval), the
+  # semicolon and everything after it is passed as a literal argument, not
+  # interpreted by the shell.  The first word ("echo") is not a real adapter
+  # binary path, so the binary-check guard catches it first — verify that the
+  # sentinel file is NOT created.
+  sentinel="/tmp/swarm-test-pwned-$$"
+  rm -f "$sentinel"
+
+  spec_file="$(mktemp)"
+  printf '# Spec\n' > "$spec_file"
+
+  export SPEC_FILE="$spec_file"
+  export WORKTREE="$WORK_DIR"
+  # Attempt injection: if eval were used, "touch $sentinel" would execute
+  export ADAPTER_CMD="echo hi; touch $sentinel"
+  export ISSUE_NUMBER="42"
+  export SWARM_LLM_MODEL=""
+
+  run bash "$HEADLESS_ADAPTER"
+  # Adapter must fail (either binary-check rejects "echo" or it doesn't write anything)
+  # Critically: the sentinel file must NOT be created
+  [ ! -f "$sentinel" ]
+
+  rm -f "$spec_file" "$sentinel"
+}
+
+# =============================================================================
+# engine: claude-code-action path — engine commits/pushes/creates PR
+# =============================================================================
+
+@test "engine: claude-code-action path commits and creates PR (engine-owns-everything)" {
+  # Simulate the claude-code-action step having already edited the working tree:
+  # pre-create the swarm/issue-42 branch on remote and checkout a working copy
+  # that has uncommitted files (as if claude-code-action just edited them).
+  git -C "$WORK_DIR" checkout -b "swarm/issue-42" "origin/main" -q
+  git -C "$WORK_DIR" push origin "swarm/issue-42" -q
+  # Write an implementation file as if claude-code-action did it (uncommitted)
+  printf 'cca implementation\n' > "$WORK_DIR/cca-output.txt"
+  # Return to main so engine can handle branch switching
+  git -C "$WORK_DIR" checkout main -q
+
+  export ADAPTER="claude-code-action"
+  unset ADAPTER_CMD
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:develop"}]'
+
+  run bash "$ENGINE_SH"
+  [ "$status" -eq 0 ] || {
+    echo "# output: $output" >&3
+    false
+  }
+
+  # Engine must have called gh pr create
+  grep -q "gh pr create" "$GH_STUB_LOG"
+  # PR body must contain Closes #42
+  grep -q "Closes #42" "$GH_PR_BODY_LOG"
+  # Transition to swarm:qa must have happened
+  grep -q "swarm:qa" "$GH_STUB_LOG"
+}
+
+# =============================================================================
+# engine: re-run when branch already exists on remote
+# =============================================================================
+
+@test "engine: re-runs cleanly when swarm branch already exists on remote" {
+  # Pre-push the branch as if a prior attempt partially succeeded
+  git -C "$WORK_DIR" checkout -b "swarm/issue-42" "origin/main" -q
+  git -C "$WORK_DIR" push origin "swarm/issue-42" -q
+  git -C "$WORK_DIR" checkout main -q
+
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:develop"}]'
+
+  # Engine must detect remote branch, resume it, and succeed
+  run bash "$ENGINE_SH"
+  [ "$status" -eq 0 ] || {
+    echo "# output: $output" >&3
+    false
+  }
+
+  # Branch must still exist (checked out from remote, not re-created)
+  git -C "$BARE_DIR" show-ref --verify --quiet "refs/heads/swarm/issue-42"
+  grep -q "gh pr create" "$GH_STUB_LOG"
+}
