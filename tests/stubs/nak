@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Stub nak CLI for bats tests.
+# Records every invocation (full argv, one line) to $NAK_LOG.
+# Queue behaviour: if $NAK_QUEUE is set and non-empty, pops the first line:
+#   "fail"   → exits 1 (publish failure)
+#   anything else → printed as canned response and exits 0
+# Default: prints a fixed success event JSON and exits 0.
+
+if [ -n "${NAK_LOG:-}" ]; then
+  printf '%s' "$*" | tr '\n' ' ' >> "$NAK_LOG"
+  printf '\n' >> "$NAK_LOG"
+fi
+
+if [ -n "${NAK_QUEUE:-}" ] && [ -s "$NAK_QUEUE" ]; then
+  raw="$(head -1 "$NAK_QUEUE")"
+  tail -n +2 "$NAK_QUEUE" > "$NAK_QUEUE.tmp" && mv "$NAK_QUEUE.tmp" "$NAK_QUEUE"
+  [ "$raw" = "fail" ] && exit 1
+  printf '%s\n' "$raw"
+  exit 0
+fi
+
+printf '{"id":"aaaa000000000000000000000000000000000000000000000000000000000001","kind":9}\n'
+exit 0
