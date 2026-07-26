@@ -8,9 +8,10 @@ description: >
   only edits the working tree.
 
   For the `claude-code-action` adapter: `anthropics/claude-code-action` is
-  called as a separate step in `develop.yml` BEFORE this action.  The engine
-  then skips its own git/push/PR steps and only verifies the PR exists and
-  transitions the issue label.
+  called as a separate step in `develop.yml` BEFORE this action in
+  file-edit mode only — the action edits the working tree.  The engine
+  then runs its full git/push/PR plumbing (same as the headless adapter)
+  and transitions the issue label.
 
   Engine verifies PR existence via `gh api` rather than trusting adapter or
   `gh pr create` output.  On success the issue transitions

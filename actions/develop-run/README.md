@@ -21,7 +21,7 @@ The adapter only edits the working tree. It must not push, create PRs, or mutate
 
 ## V1 adapters (see `adapters/`)
 
-- `claude-code-action` (default) — `anthropics/claude-code-action` runs as a **separate step** in `develop.yml` before this action (SHA-pinned; `create_pull_request: "false"`). The engine then skips its own git/push/PR steps and goes straight to PR verification + transition. Fix loop: `@claude` PR comment trigger (native to the action).
+- `claude-code-action` (default) — `anthropics/claude-code-action` runs as a **separate step** in `develop.yml` before this action in file-edit mode only (`create_pull_request: "false"`); the action edits the working tree. The engine then runs its full git/push/PR plumbing (same as headless). Fix loop: `@claude` PR comment trigger (native to the action).
 - `headless` — wraps any coding CLI via `ADAPTER_CMD` env (`claude -p`, `aider --yes-always`, `goose run`, etc.). The engine owns all git/gh operations; the adapter only edits files. Fix loop: engine re-invokes `headless.sh` with `SWARM_FIX_CONTEXT` JSON.
 
 Adapter selection is a caller input to `develop.yml` — no engine changes required to switch adapters.

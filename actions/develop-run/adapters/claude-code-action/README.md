@@ -15,20 +15,14 @@ other third-party actions (only shell, script, and Docker actions).
 `develop.yml` implements the two-step pattern:
 
 1. **Claude Code Action step** (conditional on `adapter == 'claude-code-action'`):
-   Calls the SHA-pinned action in **file-edit mode** (no auto-PR).  The action
-   edits the working tree, commits, and pushes, but does NOT create the PR.
-   The PR is created by the engine so the body always contains
-   `Closes #N`, adapter, and model metadata.
-
-   > NOTE (v1): Because `anthropics/claude-code-action` manages its own
-   > git operations, the engine detects the branch state after the action
-   > completes rather than running its own git steps.  The engine skips its
-   > own branch-creation / commit / push / PR-create flow and goes straight
-   > to PR verification + transition.
+   Calls the SHA-pinned action in **file-edit mode only** (`create_pull_request: "false"`).
+   The action edits the working tree. It does not commit, push, or create the PR.
 
 2. **Develop engine step** (always runs, via `./actions/develop-run`):
-   Verifies the PR exists via `gh api`, then transitions the issue from
-   `swarm:develop` to `swarm:qa`.
+   Runs its full git/PR plumbing — identical to the headless adapter path: branch
+   creation (`swarm/issue-N`), spec file commit, adapter-output commit, push,
+   `gh pr create` (with `Closes #N`, adapter, and model in the body), `gh api`
+   PR verification, then `swarm:develop → swarm:qa` transition.
 
 ## develop.yml snippet
 
