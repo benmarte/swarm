@@ -79,6 +79,10 @@ spec_content="$(cat "$SPEC_FILE")"
 
 fix_section=""
 if [ -n "${SWARM_FIX_CONTEXT:-}" ]; then
+  # shellcheck disable=SC2016
+  # Rationale: the backtick-fenced ```json\n%s\n``` is a literal Markdown fence
+  # for the prompt; it must not be expanded by the shell — %s is a printf format
+  # specifier that will be replaced with $SWARM_FIX_CONTEXT, not a variable.
   fix_section="$(printf '\n\n---\n\n## Fix Context\n\nA required check failed. Apply the fix:\n\n```json\n%s\n```\n' "$SWARM_FIX_CONTEXT")"
 fi
 

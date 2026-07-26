@@ -237,7 +237,6 @@ fi
 echo "develop-run: verifying PR via gh api"
 
 repo_owner="${GITHUB_REPOSITORY%%/*}"
-repo_name="${GITHUB_REPOSITORY##*/}"
 encoded_head="${repo_owner}:${BRANCH_NAME}"
 
 verify_json="$(gh api \
