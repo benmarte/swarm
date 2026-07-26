@@ -17,6 +17,8 @@ REPO_ROOT="$(git -C "$(dirname "$BATS_TEST_FILENAME")" rev-parse --show-toplevel
 INTAKE="$REPO_ROOT/workflows/intake.yml"
 SPEC="$REPO_ROOT/workflows/spec.yml"
 DEVELOP="$REPO_ROOT/workflows/develop.yml"
+PR_GATES="$REPO_ROOT/workflows/pr-gates.yml"
+FIX="$REPO_ROOT/workflows/fix.yml"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -504,5 +506,249 @@ for ref in matches:
 
 sys.exit(0)
 PYEOF
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# pr-gates.yml structural tests
+# ---------------------------------------------------------------------------
+
+@test "pr-gates.yml: actionlint passes" {
+  run actionlint "$PR_GATES"
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: declares on.workflow_call" {
+  run grep -q "workflow_call:" "$PR_GATES"
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: declares concurrency key" {
+  run grep -q "^concurrency:" "$PR_GATES"
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: declares runner-label input" {
+  run grep -q "runner-label:" "$PR_GATES"
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: declares dry-run input" {
+  run grep -q "dry-run:" "$PR_GATES"
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: declares adapter input" {
+  run grep -q "adapter:" "$PR_GATES"
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: every job has a permissions block" {
+  WORKFLOW_FILE="$PR_GATES" python3 - <<'PYEOF'
+import os, sys
+
+with open(os.environ["WORKFLOW_FILE"]) as fh:
+    content = fh.read()
+
+in_jobs = False
+job_count = 0
+perms_count = 0
+
+for line in content.split("\n"):
+    if line.strip() == "jobs:":
+        in_jobs = True
+        continue
+    if not in_jobs:
+        continue
+    if not line.strip():
+        continue
+    cur = len(line) - len(line.lstrip())
+    if cur == 2 and line.rstrip().endswith(":") and not line.strip().startswith("#"):
+        job_count += 1
+    if line.strip().startswith("permissions:"):
+        perms_count += 1
+
+if job_count == 0:
+    print("No jobs found in workflow")
+    sys.exit(1)
+if perms_count < job_count:
+    print(f"Jobs: {job_count}, permissions blocks: {perms_count} — every job must declare permissions")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$?" -eq 0 ]
+}
+
+@test "pr-gates.yml: every job has timeout-minutes" {
+  WORKFLOW_FILE="$PR_GATES" python3 - <<'PYEOF'
+import os, sys
+
+with open(os.environ["WORKFLOW_FILE"]) as fh:
+    content = fh.read()
+
+in_jobs = False
+job_count = 0
+timeout_count = 0
+
+for line in content.split("\n"):
+    if line.strip() == "jobs:":
+        in_jobs = True
+        continue
+    if not in_jobs:
+        continue
+    if not line.strip():
+        continue
+    cur = len(line) - len(line.lstrip())
+    if cur == 2 and line.rstrip().endswith(":") and not line.strip().startswith("#"):
+        job_count += 1
+    if "timeout-minutes:" in line:
+        timeout_count += 1
+
+if job_count == 0:
+    print("No jobs found")
+    sys.exit(1)
+if timeout_count < job_count:
+    print(f"Jobs: {job_count}, timeout-minutes declarations: {timeout_count}")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$?" -eq 0 ]
+}
+
+@test "pr-gates.yml: no '\${{' in run: block content" {
+  run check_no_interpolation_in_run "$PR_GATES"
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: no static GITHUB_OUTPUT heredoc delimiters" {
+  run check_no_static_output_delimiters "$PR_GATES"
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: references SWARM_TOKEN for reviewer step" {
+  run grep -q "SWARM_TOKEN" "$PR_GATES"
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# fix.yml structural tests
+# ---------------------------------------------------------------------------
+
+@test "fix.yml: actionlint passes" {
+  run actionlint "$FIX"
+  [ "$status" -eq 0 ]
+}
+
+@test "fix.yml: declares on.workflow_call" {
+  run grep -q "workflow_call:" "$FIX"
+  [ "$status" -eq 0 ]
+}
+
+@test "fix.yml: declares concurrency key" {
+  run grep -q "^concurrency:" "$FIX"
+  [ "$status" -eq 0 ]
+}
+
+@test "fix.yml: declares runner-label input" {
+  run grep -q "runner-label:" "$FIX"
+  [ "$status" -eq 0 ]
+}
+
+@test "fix.yml: declares dry-run input" {
+  run grep -q "dry-run:" "$FIX"
+  [ "$status" -eq 0 ]
+}
+
+@test "fix.yml: declares adapter input" {
+  run grep -q "adapter:" "$FIX"
+  [ "$status" -eq 0 ]
+}
+
+@test "fix.yml: every job has a permissions block" {
+  WORKFLOW_FILE="$FIX" python3 - <<'PYEOF'
+import os, sys
+
+with open(os.environ["WORKFLOW_FILE"]) as fh:
+    content = fh.read()
+
+in_jobs = False
+job_count = 0
+perms_count = 0
+
+for line in content.split("\n"):
+    if line.strip() == "jobs:":
+        in_jobs = True
+        continue
+    if not in_jobs:
+        continue
+    if not line.strip():
+        continue
+    cur = len(line) - len(line.lstrip())
+    if cur == 2 and line.rstrip().endswith(":") and not line.strip().startswith("#"):
+        job_count += 1
+    if line.strip().startswith("permissions:"):
+        perms_count += 1
+
+if job_count == 0:
+    print("No jobs found in workflow")
+    sys.exit(1)
+if perms_count < job_count:
+    print(f"Jobs: {job_count}, permissions blocks: {perms_count} — every job must declare permissions")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$?" -eq 0 ]
+}
+
+@test "fix.yml: every job has timeout-minutes" {
+  WORKFLOW_FILE="$FIX" python3 - <<'PYEOF'
+import os, sys
+
+with open(os.environ["WORKFLOW_FILE"]) as fh:
+    content = fh.read()
+
+in_jobs = False
+job_count = 0
+timeout_count = 0
+
+for line in content.split("\n"):
+    if line.strip() == "jobs:":
+        in_jobs = True
+        continue
+    if not in_jobs:
+        continue
+    if not line.strip():
+        continue
+    cur = len(line) - len(line.lstrip())
+    if cur == 2 and line.rstrip().endswith(":") and not line.strip().startswith("#"):
+        job_count += 1
+    if "timeout-minutes:" in line:
+        timeout_count += 1
+
+if job_count == 0:
+    print("No jobs found")
+    sys.exit(1)
+if timeout_count < job_count:
+    print(f"Jobs: {job_count}, timeout-minutes declarations: {timeout_count}")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$?" -eq 0 ]
+}
+
+@test "fix.yml: no '\${{' in run: block content" {
+  run check_no_interpolation_in_run "$FIX"
+  [ "$status" -eq 0 ]
+}
+
+@test "fix.yml: no static GITHUB_OUTPUT heredoc delimiters" {
+  run check_no_static_output_delimiters "$FIX"
+  [ "$status" -eq 0 ]
+}
+
+@test "fix.yml: contains both adapter-path conditionals" {
+  run grep -q "claude-code-action" "$FIX"
+  [ "$status" -eq 0 ]
+  run grep -q "headless" "$FIX"
   [ "$status" -eq 0 ]
 }

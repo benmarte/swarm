@@ -11,6 +11,13 @@ Behavior:
 
 Inputs: `issue-number`, `maintainer`, `post-comment` (default `true`)
 
+Outputs:
+
+| Output | Value | Description |
+|--------|-------|-------------|
+| `needs-human` | `true` | Attempts reached the limit (escalation applied, or was already at limit). |
+| `needs-human` | `false` | Counter incremented but limit not yet reached; fix re-invocation may proceed. |
+
 The attempt limit is fixed at 3. The pipeline never makes more than 3 automated fix attempts per issue.
 
 Required job permissions: `issues: write`, `contents: read`

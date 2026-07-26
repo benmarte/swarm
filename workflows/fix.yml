@@ -1,0 +1,249 @@
+# fix.yml — swarm gate-failure fix loop reusable workflow (workflow_call)
+#
+# Triggered when a PR's required checks fail. Bumps the fix attempt counter
+# via actions/bump-attempts and — if the attempt limit has not been reached —
+# re-invokes the develop adapter with failing-check context so it can address
+# the failures automatically.
+#
+# Caller-input surface:
+#   pr              (number, required)
+#   issue           (number, required)
+#   runner-label    (string, default: swarm-agent)
+#   dry-run         (boolean, default: false)
+#   adapter         (string, default: claude-code-action)  One of: claude-code-action, headless.
+#   adapter-cmd     (string, default: "")                  CLI for headless adapter.
+#   model           (string, default: "")
+#   maintainer      (string, required)                     Assigned on escalation.
+#   failing-checks  (string, default: "")                  Comma-separated failing check names.
+#   log-url         (string, default: "")                  URL to the failing check run log.
+#
+# Behavior:
+#   1. bump job: calls actions/bump-attempts (unless dry-run). Emits needs-human + attempt-count.
+#   2. fix-invoke job: skipped when needs-human=true. Otherwise re-invokes the adapter:
+#      - claude-code-action: posts @claude PR comment with failing-check context.
+#      - headless: builds SWARM_FIX_CONTEXT JSON {check_name, conclusion, log_url,
+#          attempt_number} and calls actions/develop-run; adapter injects context into prompt.
+#
+# dry-run semantics:
+#   dry-run=true → bump-attempts step is SKIPPED (counter not incremented).
+#                  All write steps log intent and exit 0.
+#
+# SWARM_FIX_CONTEXT schema (headless adapter, per headless.sh §Optional env):
+#   { "check_name":      <string — comma-separated failing check names>,
+#     "conclusion":      "failure",
+#     "log_url":         <string — URL to the check run log, or "">,
+#     "attempt_number":  <integer — current attempt count> }
+#
+# Permissions per job:
+#   bump job        : issues: write, contents: read (bump-attempts needs issues:write)
+#   fix-invoke job  : contents: write, pull-requests: write, issues: write
+#                     (pr comment + develop-run needs all three)
+
+on:
+  workflow_call:
+    inputs:
+      pr:
+        description: PR number on which checks failed.
+        required: true
+        type: number
+      issue:
+        description: Issue number being implemented.
+        required: true
+        type: number
+      runner-label:
+        description: Runner label for the fix-invoke job. Bump job uses ubuntu-latest.
+        required: false
+        type: string
+        default: swarm-agent
+      dry-run:
+        description: When true, skip bump-attempts and log all writes without executing.
+        required: false
+        type: boolean
+        default: false
+      adapter:
+        description: Develop adapter to re-invoke (claude-code-action or headless).
+        required: false
+        type: string
+        default: claude-code-action
+      adapter-cmd:
+        description: >
+          CLI command for the headless adapter (e.g. "claude -p", "aider --yes-always").
+          Required when adapter=headless; ignored otherwise.
+        required: false
+        type: string
+        default: ""
+      model:
+        description: LLM model identifier forwarded to the adapter.
+        required: false
+        type: string
+        default: ""
+      maintainer:
+        description: GitHub username to assign when bump-attempts escalates to swarm:needs-human.
+        required: true
+        type: string
+      failing-checks:
+        description: >
+          Comma-separated names of the failing checks. Used as check_name in
+          SWARM_FIX_CONTEXT for the headless adapter; forwarded as text context
+          for the @claude comment path.
+        required: false
+        type: string
+        default: ""
+      log-url:
+        description: >
+          URL to the failing check run log. Forwarded as log_url in
+          SWARM_FIX_CONTEXT for the headless adapter.
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  group: swarm-${{ inputs.issue }}
+  cancel-in-progress: false
+
+jobs:
+  # ── Step 1: bump fix attempt counter ──────────────────────────────────────
+  bump:
+    name: Bump fix attempts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      issues: write
+      contents: read
+    outputs:
+      needs-human: ${{ steps.escalation.outputs.needs-human }}
+      attempt-count: ${{ steps.escalation.outputs.attempt-count }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Bump attempts
+        id: bump-attempts-step
+        if: inputs.dry-run == false
+        uses: ./actions/bump-attempts
+        with:
+          issue-number: ${{ inputs.issue }}
+          maintainer: ${{ inputs.maintainer }}
+
+      - name: Resolve escalation flag and attempt count
+        id: escalation
+        env:
+          BUMP_NEEDS_HUMAN: ${{ steps.bump-attempts-step.outputs.needs-human }}
+          BUMP_ATTEMPT_COUNT: ${{ steps.bump-attempts-step.outputs.attempt-count }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          # On dry-run bump-attempts is skipped; default to false/1 (not escalated)
+          if [ "$DRY_RUN" = "true" ]; then
+            printf 'needs-human=false\n' >> "$GITHUB_OUTPUT"
+            printf 'attempt-count=1\n' >> "$GITHUB_OUTPUT"
+          else
+            nh="${BUMP_NEEDS_HUMAN:-false}"
+            ac="${BUMP_ATTEMPT_COUNT:-1}"
+            printf 'needs-human=%s\n' "$nh" >> "$GITHUB_OUTPUT"
+            printf 'attempt-count=%s\n' "$ac" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dry-run log (bump skipped)
+        if: inputs.dry-run == true
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          MAINTAINER: ${{ inputs.maintainer }}
+        run: |
+          printf 'dry-run: bump-attempts skipped — would increment fix attempt counter for issue #%s (maintainer: %s)\n' \
+            "$ISSUE_NUMBER" "$MAINTAINER"
+
+  # ── Step 2: re-invoke develop adapter (skipped on escalation) ─────────────
+  fix-invoke:
+    name: Re-invoke develop adapter
+    needs: bump
+    if: needs.bump.outputs.needs-human != 'true'
+    runs-on: ${{ inputs.runner-label }}
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      # ── claude-code-action adapter: post @claude PR comment ────────────────
+      - name: Post @claude re-invoke comment
+        if: inputs.adapter == 'claude-code-action' && inputs.dry-run == false
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          FAILING_CHECKS: ${{ inputs.failing-checks }}
+        run: |
+          branch_name="$(gh pr view "$PR_NUMBER" \
+            --json headRefName \
+            --jq '.headRefName' \
+            --repo "$GITHUB_REPOSITORY")"
+          gh pr comment "$PR_NUMBER" \
+            --body "@claude Please fix the following failing checks and make them pass. Failing checks: ${FAILING_CHECKS}. Branch: ${branch_name}." \
+            --repo "$GITHUB_REPOSITORY"
+
+      - name: Dry-run log (claude-code-action adapter)
+        if: inputs.adapter == 'claude-code-action' && inputs.dry-run == true
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          FAILING_CHECKS: ${{ inputs.failing-checks }}
+        run: |
+          printf 'dry-run: would post @claude re-invoke comment on PR #%s with failing checks: %s\n' \
+            "$PR_NUMBER" "$FAILING_CHECKS"
+
+      # ── headless adapter: build SWARM_FIX_CONTEXT then call develop-run ───
+      # SWARM_FIX_CONTEXT schema: {check_name, conclusion, log_url, attempt_number}
+      # headless.sh reads this env var and injects a ## Fix Context section into
+      # the coding-agent prompt. See actions/develop-run/adapters/headless.sh §Optional env.
+      - name: Build SWARM_FIX_CONTEXT for headless adapter
+        if: inputs.adapter == 'headless' && inputs.dry-run == false
+        env:
+          FAILING_CHECKS: ${{ inputs.failing-checks }}
+          LOG_URL: ${{ inputs.log-url }}
+          ATTEMPT_COUNT: ${{ needs.bump.outputs.attempt-count }}
+        run: |
+          attempt="${ATTEMPT_COUNT:-1}"
+          fix_ctx="$(jq -n \
+            --arg check_name "$FAILING_CHECKS" \
+            --arg conclusion "failure" \
+            --arg log_url "$LOG_URL" \
+            --argjson attempt_number "$attempt" \
+            '{check_name: $check_name, conclusion: $conclusion, log_url: $log_url, attempt_number: $attempt_number}')"
+          delim="swarm_$(openssl rand -hex 16)"
+          {
+            printf 'SWARM_FIX_CONTEXT<<%s\n' "$delim"
+            printf '%s\n' "$fix_ctx"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_ENV"
+
+      - name: Re-invoke develop-run (headless adapter)
+        if: inputs.adapter == 'headless' && inputs.dry-run == false
+        uses: ./actions/develop-run
+        with:
+          issue-number: ${{ inputs.issue }}
+          adapter: headless
+          adapter-cmd: ${{ inputs.adapter-cmd }}
+          model: ${{ inputs.model }}
+          maintainer: ${{ inputs.maintainer }}
+          dry-run: 'false'
+        # SWARM_FIX_CONTEXT is set in GITHUB_ENV by the preceding step and
+        # is automatically available to the develop-run action's shell.
+
+      - name: Dry-run log (headless adapter)
+        if: inputs.adapter == 'headless' && inputs.dry-run == true
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          FAILING_CHECKS: ${{ inputs.failing-checks }}
+          ADAPTER_CMD: ${{ inputs.adapter-cmd }}
+          ATTEMPT_COUNT: ${{ needs.bump.outputs.attempt-count }}
+        run: |
+          printf 'dry-run: would build SWARM_FIX_CONTEXT {check_name: "%s", conclusion: "failure", attempt_number: %s}\n' \
+            "$FAILING_CHECKS" "${ATTEMPT_COUNT:-1}"
+          printf 'dry-run: would invoke headless adapter (cmd: %s) for PR #%s\n' \
+            "$ADAPTER_CMD" "$PR_NUMBER"

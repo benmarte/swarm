@@ -29,10 +29,23 @@ inputs:
     required: false
     default: 'true'
 
+outputs:
+  needs-human:
+    description: >
+      'true' if attempts reached the limit and escalation was applied (or was already
+      at the limit); 'false' if the counter was incremented but limit not yet reached.
+    value: ${{ steps.run.outputs.needs-human }}
+  attempt-count:
+    description: >
+      The current attempt count after this bump (1, 2, or 3).
+      Useful for the fix loop to include as attempt_number in SWARM_FIX_CONTEXT.
+    value: ${{ steps.run.outputs.attempt-count }}
+
 runs:
   using: composite
   steps:
     - name: Run bump-attempts
+      id: run
       shell: bash
       env:
         ISSUE_NUMBER: ${{ inputs.issue-number }}
