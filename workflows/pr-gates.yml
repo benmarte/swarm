@@ -1,0 +1,348 @@
+# pr-gates.yml — swarm PR gate reusable workflow (workflow_call)
+#
+# Runs reviewer and security agents in parallel on a swarm PR.
+#
+# QA note: pr-gates does NOT run a swarm QA agent. QA = consumer-declared
+# required checks. Consumers declare which CI checks gate merge via branch
+# protection rules; the swarm pipeline does not re-run the consumer's test
+# suite. A dedicated swarm QA agent is planned for #10.
+#
+# SWARM_TOKEN requirement: consumers MUST provision a SWARM_TOKEN secret
+# pointing to a fine-grained PAT with pull-requests:write scope for a
+# distinct actor. GITHUB_TOKEN cannot approve a PR it opened (SPEC §6).
+# On dry-run=true, SWARM_TOKEN is not required.
+#
+# Caller-input surface:
+#   pr              (number, required)            PR number to review.
+#   issue           (number, required)            Issue number being implemented.
+#   runner-label    (string, default: swarm-agent)
+#   dry-run         (boolean, default: false)
+#   adapter         (string, default: claude)     Agent adapter forwarded to agent-run.
+#   model           (string, default: "")         LLM model identifier.
+#   maintainer      (string, default: "")         Reserved; unused in this workflow.
+#   qa-required-checks (string, default: "")      Reserved — pending #10.
+#
+# Secrets:
+#   SWARM_TOKEN     Fine-grained PAT with pull-requests:write for a distinct actor.
+#                   Required for reviewer-post job when dry-run is false.
+#
+# Permissions per job:
+#   reviewer job    : contents: read, pull-requests: read (checkout + gh pr diff)
+#   reviewer-post   : contents: read, pull-requests: write (post PR review via SWARM_TOKEN)
+#   security job    : contents: read, pull-requests: read (checkout + gh pr diff)
+#   security-post   : contents: read, pull-requests: write, issues: read (post PR comment)
+
+on:
+  workflow_call:
+    inputs:
+      pr:
+        description: PR number to review.
+        required: true
+        type: number
+      issue:
+        description: Issue number being implemented.
+        required: true
+        type: number
+      runner-label:
+        description: Runner label for agent jobs. Glue jobs always use ubuntu-latest.
+        required: false
+        type: string
+        default: swarm-agent
+      dry-run:
+        description: When true, log intended mutations without executing them.
+        required: false
+        type: boolean
+        default: false
+      adapter:
+        description: Agent adapter forwarded to agent-run (claude or openai-compat).
+        required: false
+        type: string
+        default: claude
+      model:
+        description: LLM model identifier set as SWARM_LLM_MODEL.
+        required: false
+        type: string
+        default: ""
+      maintainer:
+        description: Reserved — unused in pr-gates; present for caller-input consistency.
+        required: false
+        type: string
+        default: ""
+      qa-required-checks:
+        description: >
+          Comma-separated check names declared by the consumer as required for merge.
+          Reserved — full wiring pending #10; currently unused.
+        required: false
+        type: string
+        default: ""
+    secrets:
+      SWARM_TOKEN:
+        description: >
+          Fine-grained PAT with pull-requests:write scope for a distinct actor.
+          Required when dry-run is false for the reviewer job to post a real PR review.
+        required: false
+
+concurrency:
+  group: swarm-${{ inputs.issue }}
+  cancel-in-progress: false
+
+jobs:
+  # ── Reviewer agent (parallel with security) ───────────────────────────────
+  reviewer:
+    name: Reviewer agent
+    runs-on: ${{ inputs.runner-label }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      verdict: ${{ steps.read-outcome.outputs.verdict }}
+      summary: ${{ steps.read-outcome.outputs.summary }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SWARM_LLM_MODEL: ${{ inputs.model }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Fetch PR diff and metadata
+        id: ctx
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          pr_meta="$(gh api \
+            "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            --jq '{title: .title, body: .body, head_sha: .head.sha}')"
+
+          pr_diff="$(gh api \
+            "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            --header "Accept: application/vnd.github.v3.diff")"
+
+          context_json="$(printf '%s' "$pr_meta" | jq \
+            --argjson pr "$PR_NUMBER" \
+            --argjson issue "$ISSUE_NUMBER" \
+            --arg diff "$pr_diff" \
+            '. + {pr: $pr, issue: $issue, diff: $diff}')"
+
+          delim="swarm_$(openssl rand -hex 16)"
+          {
+            printf 'json<<%s\n' "$delim"
+            printf '%s\n' "$context_json"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run reviewer agent
+        uses: ./actions/agent-run
+        with:
+          role: reviewer
+          prompt-file: ${{ github.workspace }}/prompts/reviewer.md
+          context-json: ${{ steps.ctx.outputs.json }}
+          adapter: ${{ inputs.adapter }}
+          timeout-minutes: '10'
+
+      - name: Upload outcome artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: outcome-reviewer-${{ inputs.pr }}
+          path: outcome.json
+
+      - name: Read outcome
+        id: read-outcome
+        run: |
+          verdict="$(jq -r '.verdict' outcome.json)"
+          printf 'verdict=%s\n' "$verdict" >> "$GITHUB_OUTPUT"
+          summary="$(jq -r '.evidence.summary // ""' outcome.json)"
+          printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
+
+  # ── Reviewer glue: post real PR review via SWARM_TOKEN ────────────────────
+  reviewer-post:
+    name: Post PR review
+    runs-on: ubuntu-latest
+    needs: reviewer
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.SWARM_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate SWARM_TOKEN present
+        if: inputs.dry-run == false
+        env:
+          TOKEN_CHECK: ${{ secrets.SWARM_TOKEN }}
+        run: |
+          if [ -z "${TOKEN_CHECK:-}" ]; then
+            printf 'ERROR: SWARM_TOKEN secret is absent. Provision a fine-grained PAT with pull-requests:write scope.\n' >&2
+            exit 1
+          fi
+
+      - name: Post PR review (approve)
+        if: needs.reviewer.outputs.verdict == 'approve' && inputs.dry-run == false
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          SUMMARY: ${{ needs.reviewer.outputs.summary }}
+        run: |
+          gh pr review "$PR_NUMBER" \
+            --approve \
+            --body "$SUMMARY" \
+            --repo "$GITHUB_REPOSITORY"
+
+      - name: Post PR review (request-changes)
+        if: needs.reviewer.outputs.verdict == 'request-changes' && inputs.dry-run == false
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          SUMMARY: ${{ needs.reviewer.outputs.summary }}
+        run: |
+          gh pr review "$PR_NUMBER" \
+            --request-changes \
+            --body "$SUMMARY" \
+            --repo "$GITHUB_REPOSITORY"
+
+      - name: Dry-run log (reviewer)
+        if: inputs.dry-run == true
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          VERDICT: ${{ needs.reviewer.outputs.verdict }}
+          SUMMARY: ${{ needs.reviewer.outputs.summary }}
+        run: |
+          printf 'dry-run: reviewer verdict=%s — would post PR review on PR #%s: %s\n' \
+            "$VERDICT" "$PR_NUMBER" "$SUMMARY"
+
+      - name: Unexpected reviewer verdict (fail)
+        if: |
+          needs.reviewer.outputs.verdict != 'approve' &&
+          needs.reviewer.outputs.verdict != 'request-changes'
+        env:
+          VERDICT: ${{ needs.reviewer.outputs.verdict }}
+        run: |
+          printf 'ERROR: unexpected reviewer verdict: %s\n' "$VERDICT" >&2
+          exit 1
+
+  # ── Security agent (parallel with reviewer) ───────────────────────────────
+  security:
+    name: Security agent
+    runs-on: ${{ inputs.runner-label }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      verdict: ${{ steps.read-outcome.outputs.verdict }}
+      summary: ${{ steps.read-outcome.outputs.summary }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SWARM_LLM_MODEL: ${{ inputs.model }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Fetch PR diff and metadata
+        id: ctx
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          pr_meta="$(gh api \
+            "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            --jq '{title: .title, body: .body, head_sha: .head.sha}')"
+
+          pr_diff="$(gh api \
+            "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            --header "Accept: application/vnd.github.v3.diff")"
+
+          context_json="$(printf '%s' "$pr_meta" | jq \
+            --argjson pr "$PR_NUMBER" \
+            --argjson issue "$ISSUE_NUMBER" \
+            --arg diff "$pr_diff" \
+            '. + {pr: $pr, issue: $issue, diff: $diff}')"
+
+          delim="swarm_$(openssl rand -hex 16)"
+          {
+            printf 'json<<%s\n' "$delim"
+            printf '%s\n' "$context_json"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run security agent
+        uses: ./actions/agent-run
+        with:
+          role: security
+          prompt-file: ${{ github.workspace }}/prompts/security.md
+          context-json: ${{ steps.ctx.outputs.json }}
+          adapter: ${{ inputs.adapter }}
+          timeout-minutes: '10'
+
+      - name: Upload outcome artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: outcome-security-${{ inputs.pr }}
+          path: outcome.json
+
+      - name: Read outcome
+        id: read-outcome
+        run: |
+          verdict="$(jq -r '.verdict' outcome.json)"
+          printf 'verdict=%s\n' "$verdict" >> "$GITHUB_OUTPUT"
+          summary="$(jq -r '.evidence.summary // ""' outcome.json)"
+          printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
+
+  # ── Security glue: comment on advisory/fail; exit non-zero on fail ────────
+  security-post:
+    name: Post security verdict
+    runs-on: ubuntu-latest
+    needs: security
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Post advisory comment
+        if: needs.security.outputs.verdict == 'advisory' && inputs.dry-run == false
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          SUMMARY: ${{ needs.security.outputs.summary }}
+        run: |
+          gh pr comment "$PR_NUMBER" \
+            --body "**swarm security advisory:** ${SUMMARY}" \
+            --repo "$GITHUB_REPOSITORY"
+
+      - name: Post fail comment and exit non-zero
+        if: needs.security.outputs.verdict == 'fail' && inputs.dry-run == false
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          SUMMARY: ${{ needs.security.outputs.summary }}
+        run: |
+          gh pr comment "$PR_NUMBER" \
+            --body "**swarm security FAIL — merge blocked:** ${SUMMARY}" \
+            --repo "$GITHUB_REPOSITORY"
+          exit 1
+
+      - name: Dry-run log (security)
+        if: inputs.dry-run == true
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          VERDICT: ${{ needs.security.outputs.verdict }}
+          SUMMARY: ${{ needs.security.outputs.summary }}
+        run: |
+          printf 'dry-run: security verdict=%s — would handle PR #%s: %s\n' \
+            "$VERDICT" "$PR_NUMBER" "$SUMMARY"
+
+      - name: Unexpected security verdict (fail)
+        if: |
+          needs.security.outputs.verdict != 'pass' &&
+          needs.security.outputs.verdict != 'advisory' &&
+          needs.security.outputs.verdict != 'fail'
+        env:
+          VERDICT: ${{ needs.security.outputs.verdict }}
+        run: |
+          printf 'ERROR: unexpected security verdict: %s\n' "$VERDICT" >&2
+          exit 1

@@ -141,12 +141,123 @@ jobs:
 
 ---
 
-## Planned workflows (issues #8+)
+---
+
+### `pr-gates.yml` — PR reviewer + security gate (SPEC §2.2)
+
+Runs **reviewer** and **security** agents in parallel on a swarm PR. Posts a
+real GitHub PR review (approve / request-changes) authenticated via
+`SWARM_TOKEN`, and posts a PR comment on security advisory or fail.
+
+> **QA note:** `pr-gates.yml` does NOT run a swarm QA agent. QA = the
+> consumer's own CI checks declared as required status checks via branch
+> protection. The swarm pipeline gates on those external checks; no redundant
+> QA agent job is included here. Full wiring via `qa-required-checks` input is
+> planned for #10.
+
+> **SWARM_TOKEN requirement:** Consumers MUST provision a `SWARM_TOKEN` secret
+> pointing to a fine-grained PAT with `pull-requests: write` scope for a
+> **distinct actor** (not the same identity that opened the PR). This is
+> required because `GITHUB_TOKEN` cannot approve a PR it opened (SPEC §6).
+> On `dry-run: true`, `SWARM_TOKEN` is not required.
+
+**Caller-input surface:**
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `pr` | number | *(required)* | PR number to review. |
+| `issue` | number | *(required)* | Issue number being implemented. |
+| `runner-label` | string | `swarm-agent` | Runner label for agent jobs. Glue jobs use `ubuntu-latest`. |
+| `dry-run` | boolean | `false` | Log intended mutations without executing any GitHub API writes. |
+| `adapter` | string | `claude` | Agent adapter forwarded to `agent-run`. One of: `claude`, `openai-compat`. |
+| `model` | string | `""` | LLM model identifier. |
+| `maintainer` | string | `""` | Reserved; unused in this workflow. |
+| `qa-required-checks` | string | `""` | Reserved — comma-separated check names; pending #10. |
+
+**Required secret:**
+
+| Secret | Description |
+|--------|-------------|
+| `SWARM_TOKEN` | Fine-grained PAT with `pull-requests: write` scope for a distinct actor. Required when `dry-run: false`. |
+
+**Caller example:**
+
+```yaml
+# .github/workflows/swarm.yml (consumer repo)
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: ['swarm/issue-*']
+
+jobs:
+  pr-gates:
+    uses: benmarte/swarm/.github/workflows/pr-gates.yml@v1
+    with:
+      pr: ${{ github.event.pull_request.number }}
+      issue: ${{ github.event.pull_request.number }}  # adjust to your issue extraction
+      runner-label: swarm-agent
+      dry-run: false
+      adapter: claude
+    secrets:
+      SWARM_TOKEN: ${{ secrets.SWARM_TOKEN }}
+```
+
+---
+
+### `fix.yml` — Gate-failure fix loop (SPEC §2.2)
+
+Triggered when a PR's required checks fail. Bumps the fix attempt counter and
+— if the limit has not been reached — re-invokes the develop adapter with
+failing-check context so it can address the failures automatically.
+
+**Escalation:** at attempt 3, `actions/bump-attempts` applies
+`swarm:needs-human`, assigns the configured maintainer, and the fix-invoke job
+is skipped. No additional escalation steps are needed in `fix.yml`.
+
+**dry-run semantics:** `dry-run: true` → `bump-attempts` step is **skipped**
+(counter not incremented — safe for testing). All write steps log intent only.
+
+**Caller-input surface:**
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `pr` | number | *(required)* | PR number on which checks failed. |
+| `issue` | number | *(required)* | Issue number being implemented. |
+| `maintainer` | string | *(required)* | GitHub username to assign on escalation. |
+| `runner-label` | string | `swarm-agent` | Runner label for fix-invoke job. Bump job uses `ubuntu-latest`. |
+| `dry-run` | boolean | `false` | Skip bump-attempts; log all writes without executing. |
+| `adapter` | string | `claude-code-action` | Adapter to re-invoke. One of: `claude-code-action`, `headless`. |
+| `adapter-cmd` | string | `""` | CLI command for headless adapter. Required when `adapter: headless`. |
+| `model` | string | `""` | LLM model identifier forwarded to the adapter. |
+| `failing-checks` | string | `""` | Comma-separated failing check names forwarded as context. |
+
+**Caller example:**
+
+```yaml
+# .github/workflows/swarm.yml (consumer repo)
+on:
+  check_suite:
+    types: [completed]
+
+jobs:
+  fix:
+    if: github.event.check_suite.conclusion == 'failure'
+    uses: benmarte/swarm/.github/workflows/fix.yml@v1
+    with:
+      pr: ${{ github.event.check_suite.pull_requests[0].number }}
+      issue: 42  # extract from PR branch name
+      maintainer: your-github-username
+      adapter: claude-code-action
+      failing-checks: ${{ join(github.event.check_suite.check_runs.*.name, ',') }}
+    secrets: inherit
+```
+
+---
+
+## Planned workflows (issues #9+)
 
 | File | Stage | Agent? |
 |------|-------|--------|
-| `pr-gates.yml` | Reviewer + security checks on swarm PRs | reviewer, security |
-| `fix.yml` | Fix-loop on failed checks; bump attempts or escalate | via @claude |
 | `docs.yml` | Docs agent after PR merge | docs |
 | `sweeper.yml` | Nightly stuck-issue audit | orchestrator |
 
