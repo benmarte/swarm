@@ -101,11 +101,50 @@ jobs:
 
 ---
 
-## Planned workflows (issues #7+)
+### `develop.yml` — Coding agent (SPEC §2.3)
+
+Runs the coding-agent contract: given an issue in `swarm:develop`, opens a feature branch `swarm/issue-N`, commits the PM spec, invokes the coding adapter, opens a PR with `Closes #N`, verifies the PR via `gh api`, and transitions the issue to `swarm:qa`.
+
+Key design decisions: **engine-owns-everything** (see `actions/develop-run/README.md`); `claude-code-action` adapter runs as a conditional step before the engine; SHA-pinned third-party action; `concurrency: swarm-${{ inputs.issue }}` at workflow level.
+
+**Caller-input surface:**
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `issue` | number | *(required)* | Issue number to implement. |
+| `runner-label` | string | `swarm-agent` | Runner label for the coding job. |
+| `dry-run` | boolean | `false` | Log all mutations without executing GitHub API writes. |
+| `adapter` | string | `claude-code-action` | Coding adapter. One of: `claude-code-action`, `headless`. |
+| `adapter-cmd` | string | `""` | CLI command for the `headless` adapter (e.g. `claude -p`). |
+| `model` | string | `""` | LLM model identifier recorded in the PR body. |
+| `base-branch` | string | `main` | Integration branch for branch creation and PR target. |
+| `maintainer` | string | `""` | GitHub username to assign when `bump-attempts` escalates. |
+
+**Caller example:**
+
+```yaml
+# .github/workflows/swarm.yml (consumer repo)
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  develop:
+    if: github.event.label.name == 'swarm:develop' && github.event.issue.pull_request == null
+    uses: benmarte/swarm/.github/workflows/develop.yml@v1
+    with:
+      issue: ${{ github.event.issue.number }}
+      runner-label: swarm-agent
+      adapter: claude-code-action
+    secrets: inherit
+```
+
+---
+
+## Planned workflows (issues #8+)
 
 | File | Stage | Agent? |
 |------|-------|--------|
-| `develop.yml` | Coding agent opens a branch + PR | pluggable adapter |
 | `pr-gates.yml` | Reviewer + security checks on swarm PRs | reviewer, security |
 | `fix.yml` | Fix-loop on failed checks; bump attempts or escalate | via @claude |
 | `docs.yml` | Docs agent after PR merge | docs |

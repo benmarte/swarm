@@ -1,14 +1,71 @@
 #!/usr/bin/env bash
 # Stub gh CLI for bats tests.
 # Records every invocation (with arguments) to $GH_STUB_LOG.
-# Responds with configurable fixture data via GH_STUB_LABELS_JSON.
+# Responds with configurable fixture data via GH_STUB_* env vars.
 set -euo pipefail
 
 LOG="${GH_STUB_LOG:-/tmp/gh-stub.log}"
 echo "gh $*" >> "$LOG"
 
-# Parse the arguments to decide what to return
-# We support: gh api <path> [--jq <expr>] [--method GET|POST|DELETE] [--field ...]
+# ── gh pr create ─────────────────────────────────────────────────────────────
+if [ "${1:-}" = "pr" ] && [ "${2:-}" = "create" ]; then
+  # Record the full invocation (already done above via LOG)
+  # Capture --body / --body-file for PR body log
+  pr_body_log="${GH_PR_BODY_LOG:-}"
+  i=3
+  args=("$@")
+  while [ $i -lt ${#args[@]} ]; do
+    arg="${args[$i]}"
+    case "$arg" in
+      --body)
+        i=$((i+1))
+        if [ -n "$pr_body_log" ]; then
+          printf '%s' "${args[$i]}" > "$pr_body_log"
+        fi
+        ;;
+      --body-file)
+        i=$((i+1))
+        if [ -n "$pr_body_log" ] && [ -f "${args[$i]}" ]; then
+          cat "${args[$i]}" > "$pr_body_log"
+        fi
+        ;;
+    esac
+    i=$((i+1))
+  done
+  # Return the configured PR URL (defaults to a plausible stub URL)
+  printf '%s\n' "${GH_PR_URL_STUB:-https://github.com/testowner/testrepo/pull/42}"
+  exit 0
+fi
+
+# ── gh issue edit ─────────────────────────────────────────────────────────────
+if [ "${1:-}" = "issue" ] && [ "${2:-}" = "edit" ]; then
+  # log only, succeed
+  exit 0
+fi
+
+# ── gh issue comment ──────────────────────────────────────────────────────────
+if [ "${1:-}" = "issue" ] && [ "${2:-}" = "comment" ]; then
+  exit 0
+fi
+
+# ── gh issue close ────────────────────────────────────────────────────────────
+if [ "${1:-}" = "issue" ] && [ "${2:-}" = "close" ]; then
+  exit 0
+fi
+
+# ── gh issue view ────────────────────────────────────────────────────────────
+if [ "${1:-}" = "issue" ] && [ "${2:-}" = "view" ]; then
+  printf '%s\n' "${GH_STUB_ISSUE_JSON:-{\"number\":1,\"title\":\"test\",\"body\":\"\",\"labels\":[],\"comments\":[]}}"
+  exit 0
+fi
+
+# ── gh pr view ───────────────────────────────────────────────────────────────
+if [ "${1:-}" = "pr" ] && [ "${2:-}" = "view" ]; then
+  printf '%s\n' "${GH_PR_URL_STUB:-https://github.com/testowner/testrepo/pull/42}"
+  exit 0
+fi
+
+# ── gh api ───────────────────────────────────────────────────────────────────
 if [ "${1:-}" = "api" ]; then
   method="GET"
   path=""
@@ -19,7 +76,7 @@ if [ "${1:-}" = "api" ]; then
   while [ $i -lt ${#args[@]} ]; do
     arg="${args[$i]}"
     case "$arg" in
-      --method)
+      --method|-X)
         i=$((i+1))
         method="${args[$i]}"
         ;;
@@ -27,13 +84,16 @@ if [ "${1:-}" = "api" ]; then
         i=$((i+1))
         jq_expr="${args[$i]}"
         ;;
-      --field)
+      --field|-f)
         i=$((i+1))
         fields+=("${args[$i]}")
         ;;
       -*)
-        # skip unknown flags + their values
-        i=$((i+1))
+        # skip unknown flag; next arg is its value if it's not another flag
+        next_i=$((i+1))
+        if [ $next_i -lt ${#args[@]} ] && ! printf '%s' "${args[$next_i]}" | grep -q '^-'; then
+          i=$next_i
+        fi
         ;;
       *)
         if [ -z "$path" ]; then
@@ -44,13 +104,29 @@ if [ "${1:-}" = "api" ]; then
     i=$((i+1))
   done
 
+  # GET /repos/.../pulls (PR verification) → return stub PR array
+  if [ "$method" = "GET" ] && printf '%s' "$path" | grep -q '/pulls$'; then
+    pr_json="${GH_STUB_PR_JSON:-}"
+    if [ -z "$pr_json" ]; then
+      # Build a minimal PR object from GH_PR_URL_STUB
+      pr_url="${GH_PR_URL_STUB:-https://github.com/testowner/testrepo/pull/42}"
+      pr_json="[{\"html_url\":\"$pr_url\",\"number\":42,\"state\":\"open\",\"head\":{\"ref\":\"swarm/issue-1\"}}]"
+    fi
+    if [ -n "$jq_expr" ]; then
+      printf '%s' "$pr_json" | jq -r "$jq_expr"
+    else
+      printf '%s\n' "$pr_json"
+    fi
+    exit 0
+  fi
+
   # GET /repos/.../issues/.../labels → return fixture labels
-  if [ "$method" = "GET" ] && [[ "$path" == */labels ]]; then
+  if [ "$method" = "GET" ] && printf '%s' "$path" | grep -q '/labels$'; then
     labels_json="${GH_STUB_LABELS_JSON:-[]}"
     if [ -n "$jq_expr" ]; then
-      echo "$labels_json" | jq -r "$jq_expr"
+      printf '%s' "$labels_json" | jq -r "$jq_expr"
     else
-      echo "$labels_json"
+      printf '%s\n' "$labels_json"
     fi
     exit 0
   fi
@@ -61,17 +137,17 @@ if [ "${1:-}" = "api" ]; then
   fi
 
   # POST labels → log only, succeed
-  if [ "$method" = "POST" ] && [[ "$path" == */labels ]]; then
+  if [ "$method" = "POST" ] && printf '%s' "$path" | grep -q '/labels$'; then
     exit 0
   fi
 
   # POST assignees → log only, succeed
-  if [ "$method" = "POST" ] && [[ "$path" == */assignees ]]; then
+  if [ "$method" = "POST" ] && printf '%s' "$path" | grep -q '/assignees$'; then
     exit 0
   fi
 
   # POST comments → log only, succeed
-  if [ "$method" = "POST" ] && [[ "$path" == */comments ]]; then
+  if [ "$method" = "POST" ] && printf '%s' "$path" | grep -q '/comments$'; then
     exit 0
   fi
 

@@ -1,0 +1,103 @@
+name: Develop Run
+description: >
+  Coding contract — the engine for the develop stage + fix loop.
+
+  For the `headless` adapter: the engine owns git identity, branch creation
+  (`swarm/issue-N`), writing `docs/specs/issue-N.md`, invoking the adapter,
+  detecting the diff, committing, pushing, and opening the PR.  The adapter
+  only edits the working tree.
+
+  For the `claude-code-action` adapter: `anthropics/claude-code-action` is
+  called as a separate step in `develop.yml` BEFORE this action in
+  file-edit mode only — the action edits the working tree.  The engine
+  then runs its full git/push/PR plumbing (same as the headless adapter)
+  and transitions the issue label.
+
+  Engine verifies PR existence via `gh api` rather than trusting adapter or
+  `gh pr create` output.  On success the issue transitions
+  `swarm:develop → swarm:qa`.  On failure (no diff, PR verify failure)
+  the engine calls `bump-attempts`.
+
+# permissions required on the calling workflow job:
+#   contents:       write  — git push, branch creation
+#   pull-requests:  write  — gh pr create / edit
+#   issues:         write  — label transitions, comments (bump-attempts)
+
+inputs:
+  issue-number:
+    description: Issue number to implement.  Must be a positive integer.
+    required: true
+  base-branch:
+    description: Integration branch to create the feature branch from and target the PR at.
+    required: false
+    default: main
+  adapter:
+    description: >
+      Coding adapter.  Allowlist: claude-code-action | headless.
+      Default: claude-code-action.
+    required: false
+    default: claude-code-action
+  spec-body:
+    description: >
+      Full PM spec as a string.  One of spec-body or spec-file must be
+      provided; spec-file takes precedence when both are set.
+    required: false
+    default: ""
+  spec-file:
+    description: >
+      Absolute path to a file containing the PM spec.
+      Takes precedence over spec-body when set.
+    required: false
+    default: ""
+  dry-run:
+    description: >
+      When true, log all intended mutations without executing any
+      GitHub API writes, git pushes, or file commits.
+    required: false
+    default: "false"
+  adapter-cmd:
+    description: >
+      Shell command to invoke for the `headless` adapter (e.g. `claude -p`,
+      `aider --yes-always`, `goose run`).  Required when adapter=headless;
+      ignored for claude-code-action.
+    required: false
+    default: ""
+  model:
+    description: >
+      LLM model identifier recorded in the PR body for traceability.
+      Consumed by the headless adapter as SWARM_LLM_MODEL when set.
+    required: false
+    default: ""
+  maintainer:
+    description: >
+      GitHub username to assign when bump-attempts escalates to
+      swarm:needs-human (at the attempt limit).
+    required: false
+    default: ""
+
+outputs:
+  pr-url:
+    description: URL of the opened or verified PR (empty on dry-run or failure).
+    value: ${{ steps.engine.outputs.pr-url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run develop-run engine
+      id: engine
+      shell: bash
+      env:
+        ISSUE_NUMBER: ${{ inputs.issue-number }}
+        BASE_BRANCH: ${{ inputs.base-branch }}
+        ADAPTER: ${{ inputs.adapter }}
+        SPEC_BODY: ${{ inputs.spec-body }}
+        SPEC_FILE: ${{ inputs.spec-file }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        ADAPTER_CMD: ${{ inputs.adapter-cmd }}
+        MODEL: ${{ inputs.model }}
+        MAINTAINER: ${{ inputs.maintainer }}
+        GH_TOKEN: ${{ env.GH_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        bash "$ACTION_PATH/develop-run.sh"
