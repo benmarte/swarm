@@ -15,4 +15,4 @@ All schemas are versioned (`swarm/outcome@1`, etc.). Breaking schema changes req
 
 `validate-outcome` uses `ajv-cli` (pinned) to enforce `outcome.schema.json` on every agent job — no prose parsing, ever.
 
-**Not yet implemented** — scaffold placeholder for issue #1.
+Implemented in issue #2. All three schemas (`outcome`, `event`, `config`) and `runner-contract.md` are live; `validate-outcome` enforces `outcome.schema.json` on every agent job.
