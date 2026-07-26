@@ -49,10 +49,100 @@ The adapter **MUST NOT**:
 
 The engine validates `outcome.json` with `validate-outcome` immediately after the adapter exits. If validation fails, the job fails — triggering the Actions-level fix loop.
 
-### V1 adapters
+### V1 adapters (shipped reference implementations)
 
-- `claude` — runs `claude -p <prompt>` headless with `--output-format json` and constrained tools. Maps Claude's JSON output to `outcome.json`.
-- `openai-compat` — calls any OpenAI-compatible REST endpoint via `curl` + `jq`. Endpoint and model from `SWARM_LLM_BASE_URL` / `SWARM_LLM_MODEL` consumer variables.
+#### `claude` — Claude headless CLI adapter
+
+**Status:** ✅ shipped (`actions/agent-run/adapters/claude.sh`)
+
+**How it works:**
+
+1. Builds a full prompt by concatenating `$SWARM_PROMPT_FILE` content with the
+   `$SWARM_CONTEXT_JSON` block.
+2. Invokes `claude -p "$FULL_PROMPT" --output-format json --allowedTools "Read,Glob,Grep" --max-turns 1`.
+3. Parses Claude's JSON envelope: extracts `.result` (the assistant's text response).
+4. Validates `.result` parses as JSON; writes it to `$OUTCOME_FILE`.
+
+**Key flags:**
+- `--output-format json` — wraps the response in a structured envelope (not raw text).
+- `--allowedTools "Read,Glob,Grep"` — read-only tools; Bash is excluded so decision
+  roles cannot execute code.
+- `--max-turns 1` — single-shot; no multi-turn agentic loops for decision steps.
+
+**Required env:**
+```
+ANTHROPIC_API_KEY    # GitHub Actions secret — must be mapped to the job environment
+SWARM_PROMPT_FILE    # path to role prompt
+SWARM_CONTEXT_JSON   # issue/PR context JSON string
+SWARM_ROLE           # role name
+SWARM_TIMEOUT        # max seconds (passed as shell context; claude honors its own limits)
+OUTCOME_FILE         # write destination for outcome.json
+GITHUB_WORKSPACE     # working directory
+```
+
+**Adding a third adapter based on `claude`:** copy `claude.sh`, replace the
+`claude -p` invocation with your CLI of choice, ensure `.result` or equivalent
+is extracted as JSON, and write it to `$OUTCOME_FILE`.
+
+---
+
+#### `openai-compat` — OpenAI-compatible REST endpoint adapter
+
+**Status:** ✅ shipped (`actions/agent-run/adapters/openai-compat.sh`)
+
+**Compatible endpoints:** Ollama, LM Studio, vLLM, OpenAI, Anthropic (via
+compatibility layer), and any server implementing `/v1/chat/completions`.
+
+**How it works:**
+
+1. Builds a `chat/completions` request with `response_format: {type: "json_object"}`.
+2. Role prompt → `system` message; context JSON → `user` message.
+3. Calls `$SWARM_LLM_BASE_URL/chat/completions` via `curl -m $SWARM_TIMEOUT`.
+4. Extracts `choices[0].message.content`.
+5. Validates content parses as JSON; if not, attempts to extract the first `{…}`
+   block (fallback for models that ignore `response_format`).
+6. Writes the JSON to `$OUTCOME_FILE`.
+
+**Required env:**
+```
+SWARM_LLM_BASE_URL   # e.g. http://localhost:11434/v1 (Ollama)
+                     #      http://localhost:1234/v1  (LM Studio)
+                     #      https://api.openai.com/v1 (OpenAI)
+SWARM_LLM_MODEL      # e.g. llama3.2, mistral, gpt-4o
+SWARM_PROMPT_FILE    # path to role prompt
+SWARM_CONTEXT_JSON   # issue/PR context JSON string
+SWARM_ROLE           # role name
+SWARM_TIMEOUT        # max seconds (passed to curl -m)
+OUTCOME_FILE         # write destination for outcome.json
+GITHUB_WORKSPACE     # working directory
+```
+
+**Optional env:**
+```
+SWARM_LLM_API_KEY    # bearer token; omit for local endpoints that need none
+```
+
+**Local smoke test (Ollama):**
+```bash
+ollama serve &
+ollama pull llama3.2
+
+SWARM_LLM_BASE_URL=http://localhost:11434/v1 \
+SWARM_LLM_MODEL=llama3.2 \
+SWARM_PROMPT_FILE=prompts/validator.md \
+SWARM_CONTEXT_JSON='{"issue":1,"title":"test issue","body":"smoke test"}' \
+SWARM_ROLE=validator \
+SWARM_TIMEOUT=120 \
+OUTCOME_FILE=/tmp/outcome.json \
+GITHUB_WORKSPACE=/tmp \
+bash actions/agent-run/adapters/openai-compat.sh
+
+cat /tmp/outcome.json | jq .
+```
+
+**CI behavior:** when `CI=true` and `SWARM_LLM_BASE_URL` is unset, the adapter
+exits 0 with a loud `WARNING:` to stderr and skips the live call. This is the
+ONLY allowed skip — it must always log.
 
 ---
 
