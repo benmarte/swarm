@@ -15,7 +15,7 @@ need() {
   }
 }
 
-sh_files=$(git ls-files '*.sh')
+sh_files=$(git ls-files '*.sh' | grep -v '^\.claude/')
 if [ -n "$sh_files" ]; then
   need shellcheck shellcheck
   echo "verify: shellcheck $(echo "$sh_files" | wc -l | tr -d ' ') file(s)"
