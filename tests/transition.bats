@@ -170,3 +170,31 @@ teardown() {
   run bash "$TRANSITION_SH"
   [ "$status" -ne 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# Input validation — security hardening
+# ---------------------------------------------------------------------------
+
+@test "non-numeric ISSUE_NUMBER rejected before any gh call" {
+  export FROM_STAGE="swarm:go"
+  export TO_STAGE="swarm:spec"
+  export ISSUE_NUMBER="1/../../repos"
+  export GH_STUB_LABELS_JSON='[]'
+
+  run bash "$TRANSITION_SH"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"positive integer"* ]] || [[ "${lines[*]}" == *"positive integer"* ]]
+
+  # No gh calls should have been made
+  [ ! -s "$GH_STUB_LOG" ] || ! grep -q "^gh api" "$GH_STUB_LOG"
+}
+
+@test "zero ISSUE_NUMBER rejected" {
+  export FROM_STAGE="swarm:go"
+  export TO_STAGE="swarm:spec"
+  export ISSUE_NUMBER="0"
+  export GH_STUB_LABELS_JSON='[]'
+
+  run bash "$TRANSITION_SH"
+  [ "$status" -ne 0 ]
+}

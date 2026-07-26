@@ -1,13 +1,20 @@
 name: Transition Stage
 description: >
-  Atomically swaps one swarm stage label for another, posts a transition
-  comment, and invokes the notify hook (stub until #4 lands).
+  Swaps one swarm stage label for another (remove old, add new), posts a
+  transition comment, and invokes the notify hook (stub until #4 lands).
   Idempotent: if the issue already carries to-stage (and not from-stage),
   exits 0 as a no-op.
 
 # permissions required on the calling workflow job:
 #   issues: write        — add/remove labels, post comment
 #   contents: read       — default; needed so the action_path works
+#
+# Partial-failure / retry behavior:
+#   The remove-old and add-new label calls are sequential, not transactional.
+#   If the action fails between them, re-running recovers cleanly: the
+#   idempotency check (to-stage already present → no-op exit 0) prevents
+#   duplicate label adds, and a missing from-stage label is tolerated with a
+#   warning rather than a hard failure.
 
 inputs:
   issue-number:

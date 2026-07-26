@@ -13,21 +13,32 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Attempts label allowlist
+# Attempts config
 # ---------------------------------------------------------------------------
-ALLOWED_ATTEMPTS="swarm:attempts:1 swarm:attempts:2 swarm:attempts:3"
 ATTEMPT_LIMIT=3
 
 # ---------------------------------------------------------------------------
-# Validate inputs
+# Validate inputs — hard-fail before any gh call (SPEC §6)
 # ---------------------------------------------------------------------------
 if [ -z "${ISSUE_NUMBER:-}" ]; then
   echo "bump-attempts: ERROR: ISSUE_NUMBER is required" >&2
   exit 1
 fi
 
+# ISSUE_NUMBER must be a positive integer (guards URL path injection)
+if [[ ! "${ISSUE_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "bump-attempts: ERROR: ISSUE_NUMBER must be a positive integer, got: '${ISSUE_NUMBER}'" >&2
+  exit 1
+fi
+
 if [ -z "${MAINTAINER:-}" ]; then
   echo "bump-attempts: ERROR: MAINTAINER is required" >&2
+  exit 1
+fi
+
+# MAINTAINER must match GitHub username charset (guards --field body injection)
+if [[ ! "${MAINTAINER}" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]]; then
+  echo "bump-attempts: ERROR: MAINTAINER is not a valid GitHub username: '${MAINTAINER}'" >&2
   exit 1
 fi
 
@@ -39,15 +50,18 @@ current_labels=$(gh api \
   "/repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels" \
   --jq '.[].name')
 
-# Determine current attempt count from labels (0 if none found)
+# Determine current attempt count and current stage from labels (0 / "unknown" if none found)
 current_n=0
 current_label=""
+current_stage="unknown"
 
 while IFS= read -r label; do
   case "$label" in
     swarm:attempts:1) current_n=1; current_label="swarm:attempts:1" ;;
     swarm:attempts:2) current_n=2; current_label="swarm:attempts:2" ;;
     swarm:attempts:3) current_n=3; current_label="swarm:attempts:3" ;;
+    swarm:go|swarm:spec|swarm:develop|swarm:qa|swarm:docs|swarm:done|swarm:needs-human|swarm:paused)
+      current_stage="$label" ;;
   esac
 done <<< "$current_labels"
 
@@ -108,7 +122,7 @@ if [ "$next_n" -eq "$ATTEMPT_LIMIT" ]; then
     --arg repo "${GITHUB_REPOSITORY}" \
     --argjson issue "${ISSUE_NUMBER}" \
     --argjson pr "null" \
-    --arg stage_from "swarm:develop" \
+    --arg stage_from "${current_stage}" \
     --arg stage_to "swarm:needs-human" \
     --arg actor "${MAINTAINER}" \
     --arg url "https://github.com/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" \

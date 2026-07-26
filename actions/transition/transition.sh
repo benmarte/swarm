@@ -37,6 +37,12 @@ if [ -z "${ISSUE_NUMBER:-}" ]; then
   exit 1
 fi
 
+# ISSUE_NUMBER must be a positive integer (guards URL path injection)
+if [[ ! "${ISSUE_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "transition: ERROR: ISSUE_NUMBER must be a positive integer, got: '${ISSUE_NUMBER}'" >&2
+  exit 1
+fi
+
 if [ -z "${FROM_STAGE:-}" ]; then
   echo "transition: ERROR: FROM_STAGE is required" >&2
   exit 1

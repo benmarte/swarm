@@ -172,3 +172,75 @@ teardown() {
   run bash "$BUMP_SH"
   [ "$status" -ne 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# stage_from derived from current labels (reviewer finding)
+# ---------------------------------------------------------------------------
+
+@test "escalation event stage_from reflects actual current stage (swarm:qa)" {
+  # Issue is at swarm:qa with 2 attempts → escalation should record stage_from=swarm:qa
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:qa"},{"name":"swarm:attempts:2"}]'
+
+  run bash "$BUMP_SH"
+  [ "$status" -eq 0 ]
+
+  [ -f "$RUNNER_TEMP/escalation-event.json" ]
+  stage_from=$(jq -r '.stage_from' "$RUNNER_TEMP/escalation-event.json")
+  [ "$stage_from" = "swarm:qa" ]
+}
+
+@test "escalation event stage_from is 'unknown' when no stage label present" {
+  # Issue has attempts:2 but no stage label at all
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:attempts:2"}]'
+
+  run bash "$BUMP_SH"
+  [ "$status" -eq 0 ]
+
+  [ -f "$RUNNER_TEMP/escalation-event.json" ]
+  stage_from=$(jq -r '.stage_from' "$RUNNER_TEMP/escalation-event.json")
+  [ "$stage_from" = "unknown" ]
+}
+
+# ---------------------------------------------------------------------------
+# Input validation — security hardening
+# ---------------------------------------------------------------------------
+
+@test "non-numeric ISSUE_NUMBER rejected before any gh call" {
+  export ISSUE_NUMBER="1/../../repos"
+  export GH_STUB_LABELS_JSON='[]'
+
+  run bash "$BUMP_SH"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"positive integer"* ]] || [[ "${lines[*]}" == *"positive integer"* ]]
+
+  # No gh calls should have been made
+  [ ! -s "$GH_STUB_LOG" ] || ! grep -q "^gh api" "$GH_STUB_LOG"
+}
+
+@test "zero ISSUE_NUMBER rejected" {
+  export ISSUE_NUMBER="0"
+  export GH_STUB_LABELS_JSON='[]'
+
+  run bash "$BUMP_SH"
+  [ "$status" -ne 0 ]
+}
+
+@test "malicious MAINTAINER with injection chars rejected before any gh call" {
+  export MAINTAINER='x" --method DELETE'
+  export GH_STUB_LABELS_JSON='[]'
+
+  run bash "$BUMP_SH"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"valid GitHub username"* ]] || [[ "${lines[*]}" == *"valid GitHub username"* ]]
+
+  # No gh calls should have been made
+  [ ! -s "$GH_STUB_LOG" ] || ! grep -q "^gh api" "$GH_STUB_LOG"
+}
+
+@test "MAINTAINER starting with hyphen rejected" {
+  export MAINTAINER="-baduser"
+  export GH_STUB_LABELS_JSON='[]'
+
+  run bash "$BUMP_SH"
+  [ "$status" -ne 0 ]
+}
