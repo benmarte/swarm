@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Stub claude CLI for bats tests.
+# Records every invocation (with arguments) to $CLAUDE_STUB_LOG.
+# Returns $CLAUDE_STUB_RESPONSE (as the JSON envelope) or a default valid envelope.
+# Exits with $CLAUDE_STUB_STATUS (default 0).
+#
+# Default response envelope wraps a valid validator outcome.json in Claude's
+# --output-format json envelope (the "result" field contains the outcome JSON string).
+
+LOG="${CLAUDE_STUB_LOG:-/tmp/claude-stub.log}"
+
+# Record full argv
+echo "claude $*" >> "$LOG"
+
+if [ -n "${CLAUDE_STUB_RESPONSE:-}" ]; then
+  echo "$CLAUDE_STUB_RESPONSE"
+  exit "${CLAUDE_STUB_STATUS:-0}"
+fi
+
+# Default: emit a valid Claude --output-format json envelope whose "result"
+# field contains a conforming validator outcome JSON string.
+# The adapter extracts .result and writes it as outcome.json.
+cat <<'EOF'
+{"type":"result","subtype":"success","is_error":false,"result":"{\"schema\":\"swarm/outcome@1\",\"role\":\"validator\",\"verdict\":\"confirmed\",\"refs\":{\"issue\":1},\"evidence\":{\"summary\":\"Issue is valid and actionable.\",\"checks\":[\"no duplicate found\",\"acceptance criteria are clear\"]},\"notes\":\"stub response\"}","session_id":"stub-session","num_turns":1,"total_cost_usd":0}
+EOF
+
+exit "${CLAUDE_STUB_STATUS:-0}"

@@ -1,0 +1,60 @@
+name: Agent Run
+description: >
+  Runner contract for swarm decision-role agents. Invokes the configured
+  adapter script (adapters/<name>.sh), which writes outcome.json; then
+  validates the outcome against schemas/outcome.schema.json via validate-outcome.
+  The engine never reads agent prose — all outcomes flow through schema validation.
+
+  Artifact upload: left to the calling workflow. Composite actions cannot
+  reliably resolve the actions/upload-artifact path when called from a
+  consumer repo, and uploading inside this action would hide the artifact
+  name from the caller. Callers MUST upload $GITHUB_WORKSPACE/outcome.json
+  (and $GITHUB_WORKSPACE/artifacts/ if present) after this action completes.
+
+# permissions required on the calling workflow job:
+#   contents: read — needed so action_path resolves correctly
+
+inputs:
+  prompt-file:
+    description: Absolute path to the role prompt Markdown file.
+    required: true
+  context-json:
+    description: JSON string with issue/PR context injected into the prompt.
+    required: true
+  role:
+    description: >
+      Decision role. Must be one of:
+      validator, pm, reviewer, security, docs, orchestrator.
+    required: true
+  adapter:
+    description: >
+      Adapter name. Must be one of: claude, openai-compat.
+      Default: claude.
+    required: false
+    default: claude
+  timeout-minutes:
+    description: >
+      Max minutes to wait for the agent response.
+      Passed to the adapter as SWARM_TIMEOUT (converted to seconds).
+      Default: 5.
+    required: false
+    default: '5'
+
+runs:
+  using: composite
+  steps:
+    - name: Install ajv-cli@5.0.0
+      shell: bash
+      run: npm install -g ajv-cli@5.0.0
+
+    - name: Run agent-run dispatch + validate
+      shell: bash
+      env:
+        SWARM_PROMPT_FILE: ${{ inputs.prompt-file }}
+        SWARM_CONTEXT_JSON: ${{ inputs.context-json }}
+        SWARM_ROLE: ${{ inputs.role }}
+        SWARM_ADAPTER: ${{ inputs.adapter }}
+        SWARM_TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        bash "$ACTION_PATH/agent-run.sh"

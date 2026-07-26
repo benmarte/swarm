@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Stub timeout (GNU coreutils) for bats tests.
+# Records every invocation (with arguments) to $TIMEOUT_STUB_LOG.
+# Delegates to the remaining arguments (skips the duration) so the wrapped
+# command still executes normally during tests.
+# Returns TIMEOUT_STUB_STATUS exit code (default: delegates to wrapped cmd).
+
+LOG="${TIMEOUT_STUB_LOG:-/tmp/timeout-stub.log}"
+
+# Record full argv
+echo "timeout $*" >> "$LOG"
+
+# First arg is the duration; remaining args are the command to run
+if [ $# -lt 2 ]; then
+  echo "timeout-stub: ERROR: expected at least 2 arguments (duration + command)" >&2
+  exit 1
+fi
+
+shift  # drop the duration
+exec "$@"
