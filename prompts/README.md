@@ -10,9 +10,9 @@ Each prompt embeds:
 Shipped:
 - `validator.md` — verdicts: `confirmed | duplicate | invalid | needs-info` (issue #5)
 - `pm.md` — verdicts: `spec | escalated` (issue #5)
+- `reviewer.md` — verdicts: `approve | request-changes` (issue #8)
+- `security.md` — verdicts: `pass | fail | advisory` (issue #8)
 
 Planned:
-- `reviewer.md` — verdicts: `approve | request-changes`
-- `security.md` — verdicts: `pass | fail | advisory`
 - `docs.md` — verdicts: `done | skipped`
 - `orchestrator.md` — verdicts: `report`
