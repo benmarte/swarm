@@ -19,7 +19,10 @@ runs:
 
     - name: Validate outcome against schema
       shell: bash
+      env:
+        OUTCOME_FILE: ${{ inputs.outcome-file }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
-        bash "${{ github.action_path }}/validate.sh" \
-          "${{ inputs.outcome-file }}" \
-          "${{ github.action_path }}/../../schemas/outcome.schema.json"
+        bash "$ACTION_PATH/validate.sh" \
+          "$OUTCOME_FILE" \
+          "$ACTION_PATH/../../schemas/outcome.schema.json"
