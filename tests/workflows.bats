@@ -303,3 +303,59 @@ PYEOF
   run check_no_interpolation_in_run "$SPEC"
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# No static EOF delimiters in GITHUB_OUTPUT heredoc writes
+#
+# Static delimiters (e.g. SWARM_CTX_EOF) can be contained in untrusted
+# content (issue bodies, LLM output), escaping the heredoc and injecting
+# forged step-output key=value pairs. All GITHUB_OUTPUT multiline writes
+# MUST use a randomly-generated delimiter (openssl rand -hex 16 pattern).
+# ---------------------------------------------------------------------------
+
+# check_no_static_output_delimiters FILE
+# Fails if any GITHUB_OUTPUT heredoc write uses a literal static delimiter
+# (i.e. a fixed string like SWARM_CTX_EOF) instead of a shell variable.
+check_no_static_output_delimiters() {
+  local file="$1"
+  WORKFLOW_FILE="$file" python3 - <<'PYEOF'
+import os, re, sys
+
+with open(os.environ["WORKFLOW_FILE"]) as fh:
+    content = fh.read()
+
+# Match lines of the form:   printf 'key<<LITERAL_DELIMITER\n'
+# where LITERAL_DELIMITER is an uppercase or mixed static string (not a variable).
+# Safe pattern: delimiter comes from a variable e.g. printf 'key<<%s\n' "$delim"
+#
+# We look for: printf '...<< followed by a non-% non-$ character
+# (indicating a static literal rather than a printf format specifier or variable).
+static_delim_pattern = re.compile(
+    r'printf\s+[\'"].*?<<([A-Za-z_][A-Za-z0-9_]+)[\'"]'
+)
+
+for i, line in enumerate(content.split("\n"), 1):
+    stripped = line.strip()
+    if "GITHUB_OUTPUT" in line:
+        continue  # the redirection line itself is not a delimiter line
+    m = static_delim_pattern.search(stripped)
+    if m:
+        delim = m.group(1)
+        # Check if this printf targets GITHUB_OUTPUT in the surrounding block
+        # (conservative: flag any static delimiter in a run: block involving GITHUB_OUTPUT)
+        print(f"Line {i}: static GITHUB_OUTPUT delimiter '{delim}' — use openssl rand -hex 16 instead: {line!r}")
+        sys.exit(1)
+
+sys.exit(0)
+PYEOF
+}
+
+@test "intake.yml: no static GITHUB_OUTPUT heredoc delimiters" {
+  run check_no_static_output_delimiters "$INTAKE"
+  [ "$status" -eq 0 ]
+}
+
+@test "spec.yml: no static GITHUB_OUTPUT heredoc delimiters" {
+  run check_no_static_output_delimiters "$SPEC"
+  [ "$status" -eq 0 ]
+}

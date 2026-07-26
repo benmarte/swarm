@@ -96,10 +96,11 @@ jobs:
           context_json="$(gh issue view "$ISSUE_NUMBER" \
             --json number,title,body,labels \
             --repo "$GITHUB_REPOSITORY")"
+          delim="swarm_$(openssl rand -hex 16)"
           {
-            printf 'json<<SWARM_CTX_EOF\n'
+            printf 'json<<%s\n' "$delim"
             printf '%s\n' "$context_json"
-            printf 'SWARM_CTX_EOF\n'
+            printf '%s\n' "$delim"
           } >> "$GITHUB_OUTPUT"
 
       - name: Run PM agent
@@ -122,10 +123,11 @@ jobs:
         run: |
           verdict="$(jq -r '.verdict' outcome.json)"
           printf 'verdict=%s\n' "$verdict" >> "$GITHUB_OUTPUT"
+          body_delim="swarm_$(openssl rand -hex 16)"
           {
-            printf 'spec-body<<SWARM_BODY_EOF\n'
+            printf 'spec-body<<%s\n' "$body_delim"
             jq -r '.evidence.spec_body // ""' outcome.json
-            printf '\nSWARM_BODY_EOF\n'
+            printf '\n%s\n' "$body_delim"
           } >> "$GITHUB_OUTPUT"
 
   post-and-advance:

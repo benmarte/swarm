@@ -91,10 +91,11 @@ jobs:
           context_json="$(gh issue view "$ISSUE_NUMBER" \
             --json number,title,body,labels \
             --repo "$GITHUB_REPOSITORY")"
+          delim="swarm_$(openssl rand -hex 16)"
           {
-            printf 'json<<SWARM_CTX_EOF\n'
+            printf 'json<<%s\n' "$delim"
             printf '%s\n' "$context_json"
-            printf 'SWARM_CTX_EOF\n'
+            printf '%s\n' "$delim"
           } >> "$GITHUB_OUTPUT"
 
       - name: Run validator agent
