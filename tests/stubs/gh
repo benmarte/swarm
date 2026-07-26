@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Stub gh CLI for bats tests.
+# Records every invocation (with arguments) to $GH_STUB_LOG.
+# Responds with configurable fixture data via GH_STUB_LABELS_JSON.
+set -euo pipefail
+
+LOG="${GH_STUB_LOG:-/tmp/gh-stub.log}"
+echo "gh $*" >> "$LOG"
+
+# Parse the arguments to decide what to return
+# We support: gh api <path> [--jq <expr>] [--method GET|POST|DELETE] [--field ...]
+if [ "${1:-}" = "api" ]; then
+  method="GET"
+  path=""
+  jq_expr=""
+  fields=()
+  args=("$@")
+  i=1
+  while [ $i -lt ${#args[@]} ]; do
+    arg="${args[$i]}"
+    case "$arg" in
+      --method)
+        i=$((i+1))
+        method="${args[$i]}"
+        ;;
+      --jq)
+        i=$((i+1))
+        jq_expr="${args[$i]}"
+        ;;
+      --field)
+        i=$((i+1))
+        fields+=("${args[$i]}")
+        ;;
+      -*)
+        # skip unknown flags + their values
+        i=$((i+1))
+        ;;
+      *)
+        if [ -z "$path" ]; then
+          path="$arg"
+        fi
+        ;;
+    esac
+    i=$((i+1))
+  done
+
+  # GET /repos/.../issues/.../labels → return fixture labels
+  if [ "$method" = "GET" ] && [[ "$path" == */labels ]]; then
+    labels_json="${GH_STUB_LABELS_JSON:-[]}"
+    if [ -n "$jq_expr" ]; then
+      echo "$labels_json" | jq -r "$jq_expr"
+    else
+      echo "$labels_json"
+    fi
+    exit 0
+  fi
+
+  # DELETE label → log only, succeed
+  if [ "$method" = "DELETE" ]; then
+    exit 0
+  fi
+
+  # POST labels → log only, succeed
+  if [ "$method" = "POST" ] && [[ "$path" == */labels ]]; then
+    exit 0
+  fi
+
+  # POST assignees → log only, succeed
+  if [ "$method" = "POST" ] && [[ "$path" == */assignees ]]; then
+    exit 0
+  fi
+
+  # POST comments → log only, succeed
+  if [ "$method" = "POST" ] && [[ "$path" == */comments ]]; then
+    exit 0
+  fi
+
+  exit 0
+fi
+
+echo "gh-stub: unhandled: gh $*" >&2
+exit 0
