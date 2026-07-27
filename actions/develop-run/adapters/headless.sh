@@ -134,6 +134,16 @@ export SWARM_LLM_MODEL
 # Run in the worktree directory
 cd "${WORKTREE:-.}"
 
+# ---------------------------------------------------------------------------
+# Security: strip repo credentials from the adapter subprocess environment.
+# The ENGINE owns all git/gh operations (push, PR creation, label writes).
+# The adapter's only job is to edit files in $WORKTREE; it must never hold
+# a token that could be exfiltrated by prompt-injected generated code.
+# GH_TOKEN/GITHUB_TOKEN are also unset — the adapter has no legitimate need
+# for GitHub API access; any such call is out of contract.
+# ---------------------------------------------------------------------------
+unset SWARM_TOKEN GH_TOKEN GITHUB_TOKEN
+
 # Word-split ADAPTER_CMD into an array without invoking a shell (no eval).
 read -ra _adapter_arr <<< "$ADAPTER_CMD"
 

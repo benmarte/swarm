@@ -529,6 +529,87 @@ PROBE
 }
 
 # =============================================================================
+# Security: repo credentials stripped from adapter subprocess env (#40)
+# =============================================================================
+
+@test "headless adapter: SWARM_TOKEN absent from adapter subprocess env" {
+  spec_file="$(mktemp)"
+  printf '# Spec\n\nDo something.\n' > "$spec_file"
+
+  # Env-dumping stub: writes its environment to a log file
+  env_log="$(mktemp)"
+  env_dump="$(mktemp)"
+  cat > "$env_dump" <<STUB
+#!/usr/bin/env bash
+env > "$env_log"
+exit 0
+STUB
+  chmod +x "$env_dump"
+
+  export SPEC_FILE="$spec_file"
+  export WORKTREE="$WORK_DIR"
+  export ADAPTER_CMD="bash $env_dump"
+  export ISSUE_NUMBER="42"
+  export SWARM_LLM_MODEL=""
+  export SWARM_TOKEN="super-secret-pat"
+  export GH_TOKEN="runner-github-token"
+  export GITHUB_TOKEN="runner-github-token-2"
+
+  run bash "$HEADLESS_ADAPTER"
+  [ "$status" -eq 0 ]
+
+  # None of the three credential vars may appear in the adapter's env
+  ! grep -q "^SWARM_TOKEN=" "$env_log"
+  ! grep -q "^GH_TOKEN=" "$env_log"
+  ! grep -q "^GITHUB_TOKEN=" "$env_log"
+
+  rm -f "$spec_file" "$env_log" "$env_dump"
+}
+
+@test "headless adapter: GH_TOKEN absent from adapter subprocess env" {
+  spec_file="$(mktemp)"
+  printf '# Spec\n\nDo something.\n' > "$spec_file"
+
+  env_log="$(mktemp)"
+  env_dump="$(mktemp)"
+  cat > "$env_dump" <<STUB
+#!/usr/bin/env bash
+env > "$env_log"
+exit 0
+STUB
+  chmod +x "$env_dump"
+
+  export SPEC_FILE="$spec_file"
+  export WORKTREE="$WORK_DIR"
+  export ADAPTER_CMD="bash $env_dump"
+  export ISSUE_NUMBER="42"
+  export SWARM_LLM_MODEL=""
+  export GH_TOKEN="sensitive-gh-token"
+
+  run bash "$HEADLESS_ADAPTER"
+  [ "$status" -eq 0 ]
+
+  ! grep -q "^GH_TOKEN=" "$env_log"
+
+  rm -f "$spec_file" "$env_log" "$env_dump"
+}
+
+@test "headless adapter: engine still completes git/PR steps after credential unset" {
+  # Full engine run — verifies that unsetting creds in headless.sh does NOT
+  # break the engine's own gh calls (which happen after adapter returns).
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:develop"}]'
+  export SWARM_TOKEN="test-pat-value"
+  export GH_TOKEN="fake-token"
+
+  run bash "$ENGINE_SH"
+  [ "$status" -eq 0 ]
+
+  # Engine must still have created the branch and invoked gh pr create
+  git -C "$BARE_DIR" show-ref --verify --quiet "refs/heads/swarm/issue-42"
+  grep -q "gh pr create" "$GH_STUB_LOG"
+}
+
+# =============================================================================
 # engine: claude-code-action path — engine commits/pushes/creates PR
 # =============================================================================
 
