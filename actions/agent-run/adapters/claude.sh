@@ -11,8 +11,10 @@
 #   OUTCOME_FILE         — absolute path to write outcome.json
 #   GITHUB_WORKSPACE     — working directory
 #
-# Required secret (consumed from environment, never echoed):
-#   ANTHROPIC_API_KEY    — must be set as a GitHub Actions secret
+# Required secret — at least one must be set (consumed from environment, never echoed):
+#   ANTHROPIC_API_KEY        — Anthropic API key for pay-per-token billing
+#   CLAUDE_CODE_OAUTH_TOKEN  — OAuth token for Claude Max/Pro subscribers
+#                              (mint with: claude setup-token)
 #
 # Local smoke test:
 #   ANTHROPIC_API_KEY=sk-ant-... \
@@ -26,11 +28,18 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Guard: ANTHROPIC_API_KEY must be present (never echo its value)
+# Auth guard: either ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN must be set
+# (values are never echoed — use -z tests only)
 # ---------------------------------------------------------------------------
-if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-  echo "claude adapter: ERROR: ANTHROPIC_API_KEY is not set." >&2
-  echo "  Set it as a GitHub Actions secret and expose it to this job." >&2
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  : # API key present — Claude CLI picks it up from the environment automatically
+elif [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+  export CLAUDE_CODE_OAUTH_TOKEN
+else
+  echo "claude adapter: ERROR: no auth credential found." >&2
+  echo "  Set ANTHROPIC_API_KEY (pay-per-token via Anthropic billing) or" >&2
+  echo "  CLAUDE_CODE_OAUTH_TOKEN (Claude Max/Pro subscription, mint with: claude setup-token)." >&2
+  echo "  At least one of ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN must be set." >&2
   exit 1
 fi
 
