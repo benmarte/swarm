@@ -519,6 +519,70 @@ ADAPTER
 # Output sanitization (security review item)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Label POST API shape (issue #46) — labels[] array form, not name= scalar
+# ---------------------------------------------------------------------------
+
+@test "pr-gates.yml: label-add POST uses labels[] array form" {
+  # GitHub Issues API requires {"labels": [...]} shape.
+  # The gh CLI array form is:  -f "labels[]=<value>"
+  # The wrong scalar form is:  -f "name=<value>"
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# Must contain the correct array form
+if 'labels[]=' not in content:
+    print("ERROR: label-add POST must use -f \"labels[]=...\" (array form), not -f \"name=...\"")
+    sys.exit(1)
+
+# Must NOT contain the wrong scalar form in any label-add POST context
+# (i.e. within a gh api call to the .../labels endpoint)
+lines = content.split('\n')
+for i, line in enumerate(lines):
+    if re.search(r'issues/\$.*?/labels', line) or re.search(r'issues/.*PR_NUMBER.*/labels', line):
+        # Check the surrounding block (10 lines) for name= pattern
+        block = '\n'.join(lines[max(0, i-2):i+10])
+        if re.search(r'-f\s+"name=', block):
+            print(f"ERROR: label-add POST near line {i+1} still uses -f \"name=...\" (scalar form); use -f \"labels[]=...\"")
+            sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: no name= scalar form in any label-add POST" {
+  # Defensive check: grep for -f "name= anywhere a labels endpoint is called
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    lines = fh.readlines()
+
+in_label_post = False
+label_post_start = -1
+
+for i, line in enumerate(lines):
+    # Detect start of a gh api call targeting the labels endpoint
+    if re.search(r'gh api', line) and re.search(r'/labels', line):
+        in_label_post = True
+        label_post_start = i
+    # Detect -f "name= in a label-post block
+    if in_label_post and re.search(r'-f\s+"name=', line):
+        print(f"ERROR: line {i+1} uses -f \"name=...\" in a label-add POST (block started line {label_post_start+1}); switch to -f \"labels[]=...\"")
+        sys.exit(1)
+    # End of block: blank line or new step
+    if in_label_post and i > label_post_start and (line.strip() == '' or re.match(r'\s+- name:', line)):
+        in_label_post = False
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
 @test "pr-gates.yml: outcome-derived single-line outputs sanitized with tr -d" {
   # Both reviewer and security Read outcome steps must pipe through tr -d '\n\r'
   # to prevent newline-injection spoofing of GITHUB_OUTPUT key=value pairs.

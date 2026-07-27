@@ -260,7 +260,7 @@ jobs:
           gh api \
             "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels" \
             --method POST \
-            -f "name=review:approved"
+            -f "labels[]=review:approved"
 
       - name: Post PR review (request-changes)
         if: needs.reviewer.outputs.verdict == 'request-changes' && inputs.dry-run == false && steps.check-review.outputs.skip != 'true'
