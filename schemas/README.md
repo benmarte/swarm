@@ -2,7 +2,7 @@
 
 Versioned JSON schemas and interface contracts for swarm.
 
-Files planned here (issues #2+):
+Implemented in issue #2:
 
 | File | Purpose |
 |------|---------|
@@ -14,5 +14,3 @@ Files planned here (issues #2+):
 All schemas are versioned (`swarm/outcome@1`, etc.). Breaking schema changes require a major version bump and a migration path for existing consumers.
 
 `validate-outcome` uses `ajv-cli` (pinned) to enforce `outcome.schema.json` on every agent job — no prose parsing, ever.
-
-Implemented in issue #2. All three schemas (`outcome`, `event`, `config`) and `runner-contract.md` are live; `validate-outcome` enforces `outcome.schema.json` on every agent job.
