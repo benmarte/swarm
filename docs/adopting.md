@@ -413,8 +413,15 @@ gh api repos/owner/your-consumer-repo/branches/main/protection \
    - **spec** job runs the PM agent. The spec is posted as an issue comment and committed to `docs/specs/issue-N.md` on the feature branch.
    - **develop** job opens the PR on branch `swarm/issue-N`.
    - **pr-gates** runs reviewer and security in parallel. The reviewer posts a real GitHub review; security posts an advisory or blocks merge.
-   - If all checks pass and the reviewer approves, the `swarm-approval` environment gate pauses for your human review.
-   - Approve the deployment in the GitHub UI to allow merge.
+   - If reviewer approves and security passes, the **merge** job queues and immediately pauses at the `swarm-approval` environment gate.
+
+   **How to approve the merge (swarm-approval gate):**
+   1. Open the Actions tab of your consumer repo and find the running `pr-gates` workflow for this PR.
+   2. In the workflow summary, you will see the **merge** job with a yellow "Waiting" badge and a **"Review deployments"** button.
+   3. Click **"Review deployments"**, check the `swarm-approval` environment checkbox, optionally add a comment, then click **"Approve and deploy"**.
+   4. The merge job resumes: it verifies the `review:approved` label is present, confirms all CI checks are green, then squash-merges the PR via `SWARM_TOKEN` and deletes the branch.
+   5. The `swarm-approval` environment was created by `bootstrap.sh` in Step 2 and configured with you as the required reviewer. Only users listed as reviewers in that environment can approve.
+
    - After merge, **docs** runs the docs agent and transitions the issue to `swarm:done`.
 
 ---

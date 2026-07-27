@@ -147,6 +147,23 @@ forbidden_files:
 
 ---
 
+## Boundary 9 — Human-gated merge (`swarm-approval` environment gate in `pr-gates.yml`)
+
+**Threat:** an automated process merges a swarm PR without human review of the final result, bypassing the intended human sign-off on AI-generated code.
+
+**Enforcement:** the `merge` job in `pr-gates.yml` declares `environment: swarm-approval`. GitHub pauses the job before any merge step and presents a "Review deployments" prompt in the Actions UI. Only users configured as required reviewers in the `swarm-approval` environment (set in **Settings → Environments → swarm-approval → Required reviewers**, provisioned by `bootstrap.sh`) can approve. This is a hard gate — the merge steps cannot execute until a human explicitly clicks "Approve and deploy."
+
+Belt-and-suspenders pre-merge verification runs after the approval click:
+1. Confirms `review:approved` label is present on the PR (reviewer agent already approved).
+2. Confirms `swarm:needs-human` is **not** on the issue (no escalated blocker).
+3. Confirms all completed check-runs on the head SHA are `success` or `skipped`.
+
+If any check fails, the merge step exits non-zero — the environment approval is consumed but no merge occurs.
+
+**File:** `.github/workflows/pr-gates.yml` — `merge` job (`environment: swarm-approval`, `needs: [reviewer-post, security-post]`, pre-merge verification steps). `scripts/bootstrap.sh` — creates the `swarm-approval` GitHub environment as part of Step 2.
+
+---
+
 ## Summary table
 
 | Boundary | Enforcement file | Mechanism |
@@ -159,3 +176,4 @@ forbidden_files:
 | 6. Least-privilege permissions | All `.github/workflows/*.yml` | Explicit `permissions:` per job |
 | 7. SHA-pinned actions | All `.github/workflows/*.yml` | Full SHA + version comment; enforced by `actionlint` in CI |
 | 8. Secret hygiene + forbidden-files | `scripts/bootstrap.sh`, `talos.pipeline.yml`, `.gitignore` | stdin discipline; forbidden-files gate; `.env.example` exemption rationale |
+| 9. Human-gated merge | `.github/workflows/pr-gates.yml`, `scripts/bootstrap.sh` | `environment: swarm-approval` pauses merge job; required-reviewer approval + pre-merge verification |

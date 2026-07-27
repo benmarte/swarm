@@ -34,6 +34,14 @@
 #   reviewer-post   : contents: read, pull-requests: write (post PR review via SWARM_TOKEN)
 #   security job    : contents: read, pull-requests: read (checkout + gh pr diff)
 #   security-post   : contents: read, pull-requests: write, issues: read (post PR comment)
+#   merge job       : contents: write, pull-requests: write, issues: write (squash-merge + transition)
+#
+# merge job — swarm-approval environment gate:
+#   After reviewer-post and security-post succeed, the merge job pauses for a
+#   human "Review deployments" approval (swarm-approval environment). On approval,
+#   pre-merge verification runs, then gh pr merge --squash --delete-branch via
+#   SWARM_TOKEN. A PAT-authored merge is required so pull_request:closed fires the
+#   docs.yml cascade (GITHUB_TOKEN merges are suppressed by GitHub's recursion guard).
 
 on:
   workflow_call:
@@ -381,6 +389,156 @@ jobs:
           printf 'verdict=%s\n' "$verdict" >> "$GITHUB_OUTPUT"
           summary="$(jq -r '.evidence.summary // ""' outcome.json | tr -d '\n\r')"
           printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
+
+  # ── Merge gate: human approval (swarm-approval environment) + squash-merge ──
+  #
+  # This is the terminal job. It runs after reviewer-post and security-post have
+  # both completed successfully. GitHub pauses the job here to request a human
+  # "Review deployments" approval in the Actions UI (the swarm-approval
+  # environment gate). After the human clicks Approve, the job resumes:
+  #   1. Pre-merge verification: review:approved label present, no
+  #      swarm:needs-human on the issue, all completed check-runs green.
+  #   2. gh pr merge --squash --delete-branch via SWARM_TOKEN so that the
+  #      resulting pull_request:closed event is authored by a distinct actor
+  #      and fires the docs.yml cascade (GITHUB_TOKEN merges do NOT trigger it).
+  #   3. Transition the issue swarm:qa → swarm:docs.
+  merge:
+    name: Merge (swarm-approval gate)
+    runs-on: ubuntu-latest
+    needs: [reviewer-post, security-post]
+    timeout-minutes: 10
+    environment: swarm-approval
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Checkout engine
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.engine-repo }}
+          ref: ${{ inputs.engine-ref }}
+          path: .swarm-engine
+          persist-credentials: false
+
+      - name: Validate SWARM_TOKEN present
+        if: inputs.dry-run == false
+        env:
+          TOKEN_CHECK: ${{ secrets.SWARM_TOKEN }}
+        run: |
+          if [ -z "${TOKEN_CHECK:-}" ]; then
+            printf 'WARNING: SWARM_TOKEN absent — merge will fall back to GITHUB_TOKEN. A PAT-authored merge is required for the docs.yml pull_request:closed cascade; GITHUB_TOKEN merges are suppressed by GitHub recursion guard.\n' >&2
+          fi
+
+      - name: Pre-merge verification
+        if: inputs.dry-run == false
+        id: verify
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          # 1. Confirm review:approved label is present on the PR.
+          pr_labels="$(gh api "/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels" \
+            --jq '[.[].name]')"
+          if ! printf '%s' "$pr_labels" | jq -e 'map(select(. == "review:approved")) | length > 0' > /dev/null; then
+            printf 'ERROR: pre-merge verification failed — review:approved label absent on PR #%s\n' "${PR_NUMBER}" >&2
+            exit 1
+          fi
+
+          # 2. Confirm swarm:needs-human is NOT present on the issue.
+          issue_labels="$(gh api "/repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/labels" \
+            --jq '[.[].name]')"
+          if printf '%s' "$issue_labels" | jq -e 'map(select(. == "swarm:needs-human")) | length > 0' > /dev/null; then
+            printf 'ERROR: pre-merge verification failed — swarm:needs-human is present on issue #%s; resolve escalation before merging\n' "${ISSUE_NUMBER}" >&2
+            exit 1
+          fi
+
+          # 3. Verify all COMPLETED check-runs on the head SHA are success or skipped.
+          # Runs that are still in_progress or queued are excluded (the swarm run itself
+          # is still running at this point). Any completed run with a non-green conclusion
+          # blocks the merge.
+          head_sha="$(gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            --jq '.head.sha')"
+          check_runs="$(gh api "/repos/${GITHUB_REPOSITORY}/commits/${head_sha}/check-runs" \
+            --jq '.check_runs')"
+
+          failing="$(printf '%s' "$check_runs" | jq '[
+            .[] |
+            select(.status == "completed") |
+            select(.conclusion != "success" and .conclusion != "skipped")
+          ] | length')"
+
+          if [ "${failing}" -gt 0 ]; then
+            printf 'ERROR: pre-merge verification failed — %s completed check-run(s) are not success/skipped on SHA %s:\n' \
+              "${failing}" "${head_sha}" >&2
+            printf '%s' "$check_runs" | jq '[
+              .[] |
+              select(.status == "completed") |
+              select(.conclusion != "success" and .conclusion != "skipped") |
+              {name: .name, status: .status, conclusion: .conclusion}
+            ]' >&2
+            exit 1
+          fi
+
+          printf 'pre-merge verification: review:approved present, no swarm:needs-human, all completed checks green on %s\n' "${head_sha}"
+
+      - name: Dry-run log (pre-merge verification)
+        if: inputs.dry-run == true
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          printf 'dry-run: pre-merge verification — would check review:approved label on PR #%s, no swarm:needs-human on issue #%s, and all completed check-runs green\n' \
+            "${PR_NUMBER}" "${ISSUE_NUMBER}"
+
+      - name: Squash-merge PR via SWARM_TOKEN
+        if: inputs.dry-run == false
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          SWARM_TOKEN: ${{ secrets.SWARM_TOKEN }}
+        run: |
+          if [ -n "${SWARM_TOKEN:-}" ]; then
+            GH_TOKEN="${SWARM_TOKEN}" gh pr merge "${PR_NUMBER}" \
+              --squash \
+              --delete-branch \
+              --repo "${GITHUB_REPOSITORY}"
+            printf 'merge: squash-merged PR #%s via SWARM_TOKEN\n' "${PR_NUMBER}"
+          else
+            printf 'WARNING: SWARM_TOKEN absent — merging with GITHUB_TOKEN; docs.yml cascade will NOT fire (GitHub recursion guard)\n' >&2
+            gh pr merge "${PR_NUMBER}" \
+              --squash \
+              --delete-branch \
+              --repo "${GITHUB_REPOSITORY}"
+            printf 'merge: squash-merged PR #%s via GITHUB_TOKEN (degraded mode)\n' "${PR_NUMBER}"
+          fi
+
+      - name: Dry-run log (merge)
+        if: inputs.dry-run == true
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+        run: |
+          printf 'dry-run: merge — would squash-merge and delete branch for PR #%s via SWARM_TOKEN\n' "${PR_NUMBER}"
+
+      - name: Transition swarm:qa → swarm:docs
+        if: inputs.dry-run == false
+        uses: ./.swarm-engine/actions/transition
+        with:
+          issue-number: ${{ inputs.issue }}
+          from-stage: swarm:qa
+          to-stage: swarm:docs
+          token: ${{ secrets.SWARM_TOKEN }}
+
+      - name: Dry-run log (transition)
+        if: inputs.dry-run == true
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          printf 'dry-run: transition — would move issue #%s from swarm:qa to swarm:docs\n' "${ISSUE_NUMBER}"
 
   # ── Security glue: comment on advisory/fail; exit non-zero on fail ────────
   security-post:

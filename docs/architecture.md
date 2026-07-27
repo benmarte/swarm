@@ -46,6 +46,8 @@ Auxiliary labels:
 
 > **Cascade dependency:** each stage-label write must be authored by a distinct actor (`SWARM_TOKEN` PAT) — not `GITHUB_TOKEN`. GitHub's recursion guard silently suppresses workflow triggers for events authored by the built-in runner token, which would stall the cascade at the first automated stage. See `docs/adopting.md#swarm-token` for required PAT scopes.
 
+> **Merge gate (implemented in `pr-gates.yml` — #48):** the `swarm_qa → merged` transition shown above is enforced by the `merge` job in `pr-gates.yml` (`environment: swarm-approval`). After `reviewer-post` and `security-post` complete, the job pauses for a human "Review deployments" approval in the Actions UI. On approval, pre-merge verification runs (`review:approved` label present, no `swarm:needs-human` on the issue, all completed check-runs green), then squash-merges via `SWARM_TOKEN` and transitions the issue to `swarm:docs`. Prior to #48, nothing in the pipeline performed the merge — the state diagram described intent, not enforcement.
+
 ---
 
 ## 3. Workflows

@@ -174,11 +174,28 @@ jobs:
 
 ---
 
-### `pr-gates.yml` — PR reviewer + security gate (SPEC §2.2)
+### `pr-gates.yml` — PR reviewer + security gate + human merge (SPEC §2.1/§2.2)
 
 Runs **reviewer** and **security** agents in parallel on a swarm PR. Posts a
 real GitHub PR review (approve / request-changes) authenticated via
 `SWARM_TOKEN`, and posts a PR comment on security advisory or fail.
+
+After both the reviewer and security jobs complete successfully, the terminal
+**merge** job runs:
+
+1. Pauses at the `swarm-approval` GitHub environment gate — a human clicks
+   **"Review deployments → Approve and deploy"** in the Actions UI.
+2. Runs pre-merge verification: `review:approved` label present on the PR, no
+   `swarm:needs-human` on the issue, all completed check-runs green.
+3. Squash-merges the PR via `SWARM_TOKEN` (`--squash --delete-branch`) so the
+   resulting `pull_request:closed` event is authored by a distinct actor and
+   triggers `docs.yml` cascade (GITHUB_TOKEN merges are suppressed by GitHub's
+   recursion guard — same rule as label cascades in other stages).
+4. Transitions the issue `swarm:qa → swarm:docs` via the transition action.
+
+> **swarm-approval environment:** Created by `bootstrap.sh` (Step 2 in
+> `docs/adopting.md`). Set the required reviewer(s) in
+> **Settings → Environments → swarm-approval → Required reviewers**.
 
 > **QA note:** `pr-gates.yml` does NOT run a swarm QA agent. QA = the
 > consumer's own CI checks declared as required status checks via branch
@@ -187,9 +204,11 @@ real GitHub PR review (approve / request-changes) authenticated via
 > planned for #10.
 
 > **SWARM_TOKEN requirement:** Consumers MUST provision a `SWARM_TOKEN` secret
-> pointing to a fine-grained PAT with `pull-requests: write` scope for a
-> **distinct actor** (not the same identity that opened the PR). This is
-> required because `GITHUB_TOKEN` cannot approve a PR it opened (SPEC §6).
+> pointing to a fine-grained PAT with `pull-requests: write` and
+> `contents: write` scope for a **distinct actor** (not the same identity that
+> opened the PR). This is required because `GITHUB_TOKEN` cannot approve a PR
+> it opened (SPEC §6) and PAT-authored merges are required to fire the
+> `docs.yml` cascade.
 > On `dry-run: true`, `SWARM_TOKEN` is not required.
 
 **Caller-input surface:**
