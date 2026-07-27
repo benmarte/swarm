@@ -84,7 +84,7 @@ No routing step ever parses agent prose. Verdict extraction is always `jq -r '.v
 - `develop` job: `contents: write, pull-requests: write, issues: write` (needs git push + PR create).
 - `reviewer-post` job: `contents: read, pull-requests: write` (only needs to post the review).
 
-The `GITHUB_TOKEN` with least-privilege is the default. `SWARM_TOKEN` (the reviewer PAT) is only mapped to the `reviewer-post` job's `GH_TOKEN` env — it is not exposed to agent jobs.
+The `GITHUB_TOKEN` with least-privilege is the default. `SWARM_TOKEN` is a fine-grained PAT with **`pull-requests: write`** and **`issues: write`** scope. The `issues: write` scope enables stage-label cascade transitions: GitHub suppresses workflow triggers for label events authored by `GITHUB_TOKEN` (recursion guard), so `SWARM_TOKEN` is forwarded to `transition`, `bump-attempts`, and `develop-run` across all seven reusable workflows so that label writes are authored by a distinct actor and cascade the next stage workflow. `SWARM_TOKEN` is never exposed to agent jobs.
 
 **File:** All workflow YAML files (`.github/workflows/*.yml`) — each `jobs.<name>.permissions:` block.
 
