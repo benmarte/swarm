@@ -145,8 +145,9 @@ notify:
 develop:
   adapter: claude-code-action   # or: headless
 
-# For openai-compat decision roles:
-# SWARM_LLM_BASE_URL: "http://localhost:11434/v1"
+# SWARM_LLM_BASE_URL is a schema-valid top-level key in swarm.config.yml (not a secret).
+# Set it only when using the openai-compat adapter for decision roles:
+# SWARM_LLM_BASE_URL: "http://localhost:11434/v1"   # Ollama; or LM Studio: http://localhost:1234/v1
 
 qa:
   required_checks:
@@ -173,16 +174,19 @@ on:
   issues:
     types: [labeled]
   pull_request:
-    types: [opened, synchronize]
+    branches: [main]                    # adjust to your default branch if different
+    types: [opened, synchronize, closed]
   workflow_run:
     workflows: ["*"]
     types: [completed]
   schedule:
-    - cron: "0 2 * * *"   # sweeper — match sweeper.schedule in swarm.config.yml
+    - cron: "0 2 * * *"               # sweeper — match sweeper.schedule in swarm.config.yml
   workflow_dispatch: {}
 
 jobs:
-  # ── intake: triggered when a maintainer applies swarm:go ──────────────────
+  # ── intake / spec / develop ────────────────────────────────────────────────
+  # Issue number comes directly from the label event — no extraction needed.
+
   intake:
     if: |
       github.event_name == 'issues' &&
@@ -191,11 +195,8 @@ jobs:
     uses: benmarte/swarm/workflows/intake.yml@v1
     with:
       issue: ${{ github.event.issue.number }}
-      # adapter: claude          # default
-      # runner-label: swarm-agent
     secrets: inherit
 
-  # ── spec: triggered when intake transitions to swarm:spec ─────────────────
   spec:
     if: |
       github.event_name == 'issues' &&
@@ -206,7 +207,6 @@ jobs:
       issue: ${{ github.event.issue.number }}
     secrets: inherit
 
-  # ── develop: triggered when spec transitions to swarm:develop ─────────────
   develop:
     if: |
       github.event_name == 'issues' &&
@@ -219,45 +219,108 @@ jobs:
       maintainer: yourgithubhandle
     secrets: inherit
 
-  # ── pr-gates: reviewer + security agents on swarm PRs ─────────────────────
-  pr-gates:
+  # ── pr-gates ───────────────────────────────────────────────────────────────
+  # Branch naming convention: swarm/issue-N (set by develop.yml).
+  # extract-for-gates derives N; pr-gates receives it as a typed number via fromJSON.
+
+  extract-for-gates:
     if: |
       github.event_name == 'pull_request' &&
-      startsWith(github.head_ref, 'swarm/')
+      (github.event.action == 'opened' || github.event.action == 'synchronize') &&
+      startsWith(github.head_ref, 'swarm/issue-')
+    runs-on: ubuntu-latest
+    outputs:
+      issue: ${{ steps.extract.outputs.issue }}
+    steps:
+      - id: extract
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          # do not edit: derives issue number from swarm/issue-N branch name
+          issue="${HEAD_REF#swarm/issue-}"
+          printf '%s' "$issue" | grep -qE '^[0-9]+$' \
+            || { printf 'ERROR: cannot parse issue from branch: %s\n' "$HEAD_REF" >&2; exit 1; }
+          printf 'issue=%s\n' "$issue" >> "$GITHUB_OUTPUT"
+
+  pr-gates:
+    needs: extract-for-gates
     uses: benmarte/swarm/workflows/pr-gates.yml@v1
     with:
       pr: ${{ github.event.number }}
-      issue: ${{ github.event.pull_request.number }}   # replace with actual issue extraction
-    secrets: inherit   # passes SWARM_TOKEN (and all other secrets) through to pr-gates
+      issue: ${{ fromJSON(needs.extract-for-gates.outputs.issue) }}   # fromJSON: string → number input
+    secrets: inherit   # passes SWARM_TOKEN through to pr-gates
 
-  # ── fix: re-invoked when a required check fails on a swarm PR ─────────────
-  fix:
+  # ── fix ────────────────────────────────────────────────────────────────────
+  # Triggered when any workflow completes with failure on a swarm/issue-N branch.
+  # PR number is available in workflow_run.pull_requests[0].number for same-repo PRs.
+
+  extract-for-fix:
     if: |
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.conclusion == 'failure' &&
-      startsWith(github.event.workflow_run.head_branch, 'swarm/')
+      startsWith(github.event.workflow_run.head_branch, 'swarm/issue-')
+    runs-on: ubuntu-latest
+    outputs:
+      issue: ${{ steps.extract.outputs.issue }}
+      pr: ${{ steps.extract.outputs.pr }}
+    steps:
+      - id: extract
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          # do not edit: derives issue number from swarm/issue-N branch name
+          issue="${HEAD_BRANCH#swarm/issue-}"
+          printf '%s' "$issue" | grep -qE '^[0-9]+$' \
+            || { printf 'ERROR: cannot parse issue from branch: %s\n' "$HEAD_BRANCH" >&2; exit 1; }
+          printf 'issue=%s\n' "$issue" >> "$GITHUB_OUTPUT"
+          printf 'pr=%s\n' "${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+
+  fix:
+    needs: extract-for-fix
     uses: benmarte/swarm/workflows/fix.yml@v1
     with:
-      pr: 0   # resolve from branch name or head SHA in practice
-      issue: 0
+      pr: ${{ fromJSON(needs.extract-for-fix.outputs.pr) }}          # fromJSON: string → number input
+      issue: ${{ fromJSON(needs.extract-for-fix.outputs.issue) }}    # fromJSON: string → number input
       maintainer: yourgithubhandle
-      adapter: claude-code-action
+      adapter: claude-code-action   # match develop.adapter in swarm.config.yml
     secrets: inherit
 
-  # ── docs: triggered when a swarm PR is merged ─────────────────────────────
-  docs:
+  # ── docs ───────────────────────────────────────────────────────────────────
+  # Triggered when a swarm/issue-N PR is merged. Same branch-name extraction.
+
+  extract-for-docs:
     if: |
       github.event_name == 'pull_request' &&
       github.event.action == 'closed' &&
       github.event.pull_request.merged == true &&
-      startsWith(github.head_ref, 'swarm/')
+      startsWith(github.head_ref, 'swarm/issue-')
+    runs-on: ubuntu-latest
+    outputs:
+      issue: ${{ steps.extract.outputs.issue }}
+    steps:
+      - id: extract
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          # do not edit: derives issue number from swarm/issue-N branch name
+          issue="${HEAD_REF#swarm/issue-}"
+          printf '%s' "$issue" | grep -qE '^[0-9]+$' \
+            || { printf 'ERROR: cannot parse issue from branch: %s\n' "$HEAD_REF" >&2; exit 1; }
+          printf 'issue=%s\n' "$issue" >> "$GITHUB_OUTPUT"
+
+  docs:
+    needs: extract-for-docs
     uses: benmarte/swarm/workflows/docs.yml@v1
     with:
-      issue: 0   # resolve from PR body in practice
       pr: ${{ github.event.number }}
+      issue: ${{ fromJSON(needs.extract-for-docs.outputs.issue) }}   # fromJSON: string → number input
     secrets: inherit
 
-  # ── sweeper: nightly stuck-issue audit (cron lives here in the caller) ─────
+  # ── sweeper ────────────────────────────────────────────────────────────────
+  # sweeper.yml is on: workflow_call only — no internal schedule trigger.
+  # The cron lives here in the caller.
+
   sweeper:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     uses: benmarte/swarm/workflows/sweeper.yml@v1
@@ -267,7 +330,7 @@ jobs:
     secrets: inherit
 ```
 
-> Note: The `sweeper` workflow is `on: workflow_call` only — it has no internal `schedule:` trigger. The cron lives in your caller workflow, as shown above.
+> Note: The `extract-for-*` helper jobs are thin `ubuntu-latest` jobs that derive the issue number from the `swarm/issue-N` branch-naming convention and expose it as a string output. `fromJSON()` converts that string to the `number` type the reusable workflow inputs require. If a branch does not follow the convention the extract job fails loudly rather than silently passing a wrong value.
 
 Commit and push the caller workflow and `swarm.config.yml`:
 
