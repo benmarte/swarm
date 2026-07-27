@@ -178,6 +178,8 @@ The `buzz_channel` value is the NIP-29 channel UUID — it is behavior config, n
 
 Create `.github/workflows/swarm.yml` in your consumer repo. This is the thin wrapper that pins swarm at `@v1` and wires triggers to reusable workflows:
 
+> **engine-ref / engine-repo alignment:** Every reusable workflow accepts `engine-ref` (default: `v1`) and `engine-repo` (default: `benmarte/swarm`) inputs. The engine uses these to check out its own actions, prompts, and scripts into `.swarm-engine/` on the runner — so they resolve against the correct version of the engine, not the consumer repo. Set `engine-ref` to the same ref you pin in the `uses:` directive (e.g. `engine-ref: v1` when `uses: benmarte/swarm/.github/workflows/intake.yml@v1`). Forks should override both `engine-repo` and `engine-ref` to point at their fork and branch. When swarm's own CI calls its reusable workflows, it passes `engine-ref: ${{ github.sha }}` to pin the exact commit under test.
+
 ```yaml
 name: swarm
 on:

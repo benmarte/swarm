@@ -11,6 +11,9 @@
 #   model          (string,  default: "")               LLM model identifier recorded in PR body. Forwarded to headless adapter as
 #                                                        SWARM_LLM_MODEL; passed as CLAUDE_MODEL env for claude-code-action.
 #   maintainer     (string,  default: "")               GitHub username to assign when bump-attempts escalates.
+#   engine-repo    (string,  default: benmarte/swarm)   Engine repository (org/repo). Override for forks.
+#   engine-ref     (string,  default: v1)               Engine ref (tag, branch, or SHA) checked out into .swarm-engine/.
+#                                                        Must match the ref used in `uses: <repo>/.github/workflows/...@<ref>`.
 #   enabled-sinks  (string,  default: "")               Reserved: comma-separated notify sinks (slack,buzz,discord,teams).
 #   buzz-channel   (string,  default: "")               Reserved: Buzz/Nostr channel UUID.
 #
@@ -84,6 +87,16 @@ on:
         required: false
         type: string
         default: ""
+      engine-repo:
+        description: Engine repository (org/repo). Override for forks.
+        required: false
+        type: string
+        default: benmarte/swarm
+      engine-ref:
+        description: Engine ref (tag, branch, or SHA) to check out into .swarm-engine/. Must match the ref pinned in the caller uses directive.
+        required: false
+        type: string
+        default: v1
 
 concurrency:
   group: swarm-${{ inputs.issue }}
@@ -108,6 +121,13 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.base-branch }}
+
+      - name: Checkout engine
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.engine-repo }}
+          ref: ${{ inputs.engine-ref }}
+          path: .swarm-engine
 
       - name: Fetch issue + spec context
         id: ctx
@@ -192,7 +212,7 @@ jobs:
       #                          the same commit/push/PR-create/verify/transition
       #                          path as headless — engine-owns-everything.
       - name: Run develop engine
-        uses: ./actions/develop-run
+        uses: ./.swarm-engine/actions/develop-run
         with:
           issue-number: ${{ inputs.issue }}
           base-branch: ${{ inputs.base-branch }}

@@ -1055,3 +1055,54 @@ sys.exit(0)
 PYEOF
   [ "$?" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# Engine self-checkout: issue #32
+#   - Zero 'uses: ./actions' in all 7 reusable workflows (grep-proof)
+#   - Zero workspace-relative engine-asset reads (github.workspace or ${WORKSPACE})
+#   - engine-ref input present on all 7 workflows
+#   - engine-repo input present on all 7 workflows
+# ---------------------------------------------------------------------------
+
+@test "no 'uses: ./actions' remains in any of the 7 reusable workflows" {
+  # All 16 local-action refs must have been rewritten to .swarm-engine/actions/<x>.
+  # Any remaining 'uses: ./actions' would break cross-repo callers (issue #32).
+  for wf in "$INTAKE" "$SPEC" "$DEVELOP" "$PR_GATES" "$FIX" "$DOCS" "$SWEEPER"; do
+    if grep -q "uses: \./actions" "$wf"; then
+      printf 'FAIL: %s still contains uses: ./actions\n' "$wf" >&2
+      grep -n "uses: \./actions" "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+@test "no workspace-relative engine-asset reads in any of the 7 reusable workflows" {
+  # Paths like ${{ github.workspace }}/prompts/... or ${WORKSPACE}/scripts/...
+  # resolve to the consumer's workspace, where engine files don't exist (issue #32).
+  for wf in "$INTAKE" "$SPEC" "$DEVELOP" "$PR_GATES" "$FIX" "$DOCS" "$SWEEPER"; do
+    if grep -qE 'github\.workspace.*/(prompts|scripts|schemas)' "$wf" || \
+       grep -qE '\$\{WORKSPACE\}/(prompts|scripts|schemas)' "$wf"; then
+      printf 'FAIL: %s contains workspace-relative engine-asset read\n' "$wf" >&2
+      grep -nE 'github\.workspace.*/(prompts|scripts|schemas)|\$\{WORKSPACE\}/(prompts|scripts|schemas)' "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+@test "engine-ref input declared in all 7 reusable workflows" {
+  for wf in "$INTAKE" "$SPEC" "$DEVELOP" "$PR_GATES" "$FIX" "$DOCS" "$SWEEPER"; do
+    if ! grep -q "engine-ref:" "$wf"; then
+      printf 'FAIL: %s is missing engine-ref: input\n' "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+@test "engine-repo input declared in all 7 reusable workflows" {
+  for wf in "$INTAKE" "$SPEC" "$DEVELOP" "$PR_GATES" "$FIX" "$DOCS" "$SWEEPER"; do
+    if ! grep -q "engine-repo:" "$wf"; then
+      printf 'FAIL: %s is missing engine-repo: input\n' "$wf" >&2
+      return 1
+    fi
+  done
+}

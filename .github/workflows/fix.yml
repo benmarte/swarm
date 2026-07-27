@@ -16,6 +16,9 @@
 #   maintainer      (string, required)                     Assigned on escalation.
 #   failing-checks  (string, default: "")                  Comma-separated failing check names.
 #   log-url         (string, default: "")                  URL to the failing check run log.
+#   engine-repo     (string, default: benmarte/swarm)      Engine repository (org/repo). Override for forks.
+#   engine-ref      (string, default: v1)                  Engine ref (tag, branch, or SHA) checked out into .swarm-engine/.
+#                                                           Must match the ref used in `uses: <repo>/.github/workflows/...@<ref>`.
 #
 # Behavior:
 #   1. bump job: calls actions/bump-attempts (unless dry-run). Emits needs-human + attempt-count.
@@ -96,6 +99,16 @@ on:
         required: false
         type: string
         default: ""
+      engine-repo:
+        description: Engine repository (org/repo). Override for forks.
+        required: false
+        type: string
+        default: benmarte/swarm
+      engine-ref:
+        description: Engine ref (tag, branch, or SHA) to check out into .swarm-engine/. Must match the ref pinned in the caller uses directive.
+        required: false
+        type: string
+        default: v1
 
 concurrency:
   group: swarm-${{ inputs.issue }}
@@ -119,10 +132,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Checkout engine
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.engine-repo }}
+          ref: ${{ inputs.engine-ref }}
+          path: .swarm-engine
+
       - name: Bump attempts
         id: bump-attempts-step
         if: inputs.dry-run == false
-        uses: ./actions/bump-attempts
+        uses: ./.swarm-engine/actions/bump-attempts
         with:
           issue-number: ${{ inputs.issue }}
           maintainer: ${{ inputs.maintainer }}
@@ -172,6 +192,13 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+
+      - name: Checkout engine
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.engine-repo }}
+          ref: ${{ inputs.engine-ref }}
+          path: .swarm-engine
 
       # ── claude-code-action adapter: post @claude PR comment ────────────────
       - name: Post @claude re-invoke comment
@@ -224,7 +251,7 @@ jobs:
 
       - name: Re-invoke develop-run (headless adapter)
         if: inputs.adapter == 'headless' && inputs.dry-run == false
-        uses: ./actions/develop-run
+        uses: ./.swarm-engine/actions/develop-run
         with:
           issue-number: ${{ inputs.issue }}
           adapter: headless

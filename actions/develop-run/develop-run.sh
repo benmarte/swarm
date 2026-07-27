@@ -183,8 +183,9 @@ fi
 # ---------------------------------------------------------------------------
 
 # -- detect diff -----------------------------------------------------------
-# Stage all changes made by the adapter (spec file was already staged above)
-git add -A
+# Stage all changes made by the adapter (spec file was already staged above).
+# Exclude engine checkout from consumer commit — .swarm-engine/ is engine-only.
+git add -A -- ':!.swarm-engine'
 
 if git diff --cached --quiet; then
   echo "develop-run: ERROR: adapter produced no changes in the working tree" >&2

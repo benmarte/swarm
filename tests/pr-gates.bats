@@ -98,7 +98,7 @@ in_bump_step = False
 found_dryrun_guard = False
 for i, line in enumerate(lines):
     stripped = line.strip()
-    if "uses: ./actions/bump-attempts" in line:
+    if "bump-attempts" in line and "uses:" in line:
         # Check surrounding lines for an "if:" with dry-run
         window = "\n".join(lines[max(0, i-10):i+3])
         if "dry-run" in window and ("== false" in window or "dry_run" in window.lower()):
@@ -156,7 +156,7 @@ if "develop-run" not in content:
 
 lines = content.split("\n")
 for i, line in enumerate(lines):
-    if "uses: ./actions/develop-run" in line:
+    if "develop-run" in line and "uses:" in line:
         window = "\n".join(lines[max(0, i-15):i+1])
         if "dry-run" not in window or "headless" not in window:
             print(f"ERROR: develop-run step missing dry-run or headless guard near line {i+1}")

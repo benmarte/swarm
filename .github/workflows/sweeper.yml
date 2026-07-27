@@ -42,6 +42,11 @@
 #         adapter: claude
 #       secrets: inherit
 #
+# Inputs (continued):
+#   engine-repo    (string,  default: benmarte/swarm)   Engine repository (org/repo). Override for forks.
+#   engine-ref     (string,  default: v1)               Engine ref (tag, branch, or SHA) checked out into .swarm-engine/.
+#                                                        Must match the ref used in `uses: <repo>/.github/workflows/...@<ref>`.
+#
 # Permissions per job:
 #   gather  : contents: read, issues: read
 #   agent   : contents: read, issues: read
@@ -85,6 +90,16 @@ on:
         required: false
         type: string
         default: ""
+      engine-repo:
+        description: Engine repository (org/repo). Override for forks.
+        required: false
+        type: string
+        default: benmarte/swarm
+      engine-ref:
+        description: Engine ref (tag, branch, or SHA) to check out into .swarm-engine/. Must match the ref pinned in the caller uses directive.
+        required: false
+        type: string
+        default: v1
   workflow_dispatch:
     inputs:
       stall-threshold-hours:
@@ -201,11 +216,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Checkout engine
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.engine-repo || 'benmarte/swarm' }}
+          ref: ${{ inputs.engine-ref || 'v1' }}
+          path: .swarm-engine
+
       - name: Run orchestrator agent
-        uses: ./actions/agent-run
+        uses: ./.swarm-engine/actions/agent-run
         with:
           role: orchestrator
-          prompt-file: ${{ github.workspace }}/prompts/orchestrator.md
+          prompt-file: .swarm-engine/prompts/orchestrator.md
           context-json: ${{ needs.gather.outputs.context-json }}
           adapter: ${{ inputs.adapter || 'claude' }}
           timeout-minutes: '10'
@@ -248,6 +270,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Checkout engine
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.engine-repo || 'benmarte/swarm' }}
+          ref: ${{ inputs.engine-ref || 'v1' }}
+          path: .swarm-engine
+
       - name: Download outcome artifact
         uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
         with:
@@ -256,14 +285,13 @@ jobs:
       - name: Parse report and escalate stuck issues
         env:
           DRY_RUN: ${{ inputs.dry-run || false }}
-          WORKSPACE: ${{ github.workspace }}
         run: |
           # Parse stuck issue numbers from the orchestrator report.
           # Only issues with recommendation=escalate are processed.
           # CONSTRAINT: This step only ever adds swarm:needs-human.
           # It NEVER adds or removes swarm:paused — paused is read-only here,
           # used solely to EXCLUDE human-parked issues from escalation.
-          stuck_issues="$(bash "${WORKSPACE}/scripts/parse-sweeper-report.sh" outcome.json)"
+          stuck_issues="$(bash ".swarm-engine/scripts/parse-sweeper-report.sh" outcome.json)"
 
           if [ -z "$stuck_issues" ]; then
             printf 'sweeper: no issues to escalate\n'
@@ -328,7 +356,7 @@ jobs:
 
       - name: Notify
         if: inputs.dry-run == false
-        uses: ./actions/notify
+        uses: ./.swarm-engine/actions/notify
         with:
           event-file: /tmp/swarm-sweeper-event.json
           enabled-sinks: ${{ inputs.enabled-sinks || '' }}
