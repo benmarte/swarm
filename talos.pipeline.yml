@@ -20,6 +20,24 @@ merge:
   required_checks:
     - ci                          # job id in .github/workflows/ci.yml (issue #1 creates it — keep the id exactly `ci`)
   delete_branch: true
+  # Override of the default forbidden-files gate: the default `.env.*` pattern
+  # catches .env.example, which is a required, value-free, TRACKED template
+  # (issue #10; maintainer-cleared 2026-07-26). Real env files stay forbidden
+  # explicitly below and are .gitignored besides (`.env`, `.env.*`,
+  # `!.env.example`), so a PR can only carry one via a deliberate `git add -f`.
+  forbidden_files:
+    - ".env"
+    - ".env.local"
+    - ".env.development"
+    - ".env.staging"
+    - ".env.production"
+    - ".env.secrets"
+    - "*.pem"
+    - "*.key"
+    - "*.p12"
+    - "*.pfx"
+    - "*.secrets"
+    - "secrets.*"
 
 issues:
   label_filter: "pipeline:ready"
