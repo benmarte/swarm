@@ -64,6 +64,8 @@ All seven workflows are `on: workflow_call` — they have no self-contained trig
 
 **Concurrency:** every issue-scoped job declares `concurrency: swarm-<issue> / cancel-in-progress: false`. This prevents duplicate runs for the same issue without cancelling an already-running job.
 
+**Engine asset resolution:** every job that invokes engine actions, prompts, or scripts runs a SHA-pinned `actions/checkout` into `path: .swarm-engine` before any engine step. All `uses:` directives and script paths reference `.swarm-engine/…` — not workspace-relative paths. The `engine-repo` and `engine-ref` workflow inputs (defaults: `benmarte/swarm` / `v1`) let callers pin an independent engine version.
+
 ---
 
 ## 4. Composite actions
