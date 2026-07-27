@@ -151,6 +151,58 @@ if [ "${1:-}" = "api" ]; then
     exit 0
   fi
 
+  # GET /users/<login> → return stub user object
+  if [ "$method" = "GET" ] && printf '%s' "$path" | grep -qE '^users/[^/]+$'; then
+    user_id="${GH_STUB_USER_ID:-99999}"
+    if [ -n "$jq_expr" ]; then
+      printf '{"id":%s,"login":"stubuser"}' "$user_id" | jq -r "$jq_expr"
+    else
+      printf '{"id":%s,"login":"stubuser"}\n' "$user_id"
+    fi
+    exit 0
+  fi
+
+  # GET /repos/.../labels/<name> → return label if it "exists" via GH_STUB_EXISTING_LABELS
+  if [ "$method" = "GET" ] && printf '%s' "$path" | grep -qE '/labels/'; then
+    label_name="$(printf '%s' "$path" | sed 's|.*/labels/||')"
+    existing="${GH_STUB_EXISTING_LABELS:-}"
+    if printf '%s' "$existing" | grep -qF "$label_name"; then
+      printf '{"name":"%s"}\n' "$label_name"
+    else
+      # Simulate 404 — exit non-zero so bootstrap skips to create
+      exit 1
+    fi
+    exit 0
+  fi
+
+  # PUT /repos/.../environments/... → log and succeed (idempotent)
+  if [ "$method" = "PUT" ] && printf '%s' "$path" | grep -q '/environments/'; then
+    exit 0
+  fi
+
+  exit 0
+fi
+
+# ── gh secret set ────────────────────────────────────────────────────────────
+if [ "${1:-}" = "secret" ] && [ "${2:-}" = "set" ]; then
+  # Log the invocation (key name visible; value must NOT be logged)
+  # We record the key name only (it appears as arg after "set"), never the value
+  # (which arrives via stdin / --body-file /dev/stdin).
+  key_name="${3:-UNKNOWN_KEY}"
+  echo "gh secret set $key_name --repo [redacted] [value-via-stdin]" >> "$LOG"
+  # Drain stdin so the caller's pipe closes cleanly
+  cat > /dev/null
+  exit 0
+fi
+
+# ── gh label create ───────────────────────────────────────────────────────────
+if [ "${1:-}" = "label" ] && [ "${2:-}" = "create" ]; then
+  exit 0
+fi
+
+# ── gh repo view ─────────────────────────────────────────────────────────────
+if [ "${1:-}" = "repo" ] && [ "${2:-}" = "view" ]; then
+  printf '%s\n' "${GH_STUB_REPO_NAME:-testowner/testrepo}"
   exit 0
 fi
 

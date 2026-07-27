@@ -1,0 +1,4 @@
+{
+  "runner": { "label": "swarm-agent" },
+  "develop": { "adapter": "claude-code-action" }
+}
