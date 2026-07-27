@@ -71,7 +71,8 @@ The engine validates `outcome.json` with `validate-outcome` immediately after th
 
 **Required env:**
 ```
-ANTHROPIC_API_KEY    # GitHub Actions secret — must be mapped to the job environment
+ANTHROPIC_API_KEY        # pay-per-token auth — set as a GitHub Actions secret (or use CLAUDE_CODE_OAUTH_TOKEN)
+CLAUDE_CODE_OAUTH_TOKEN  # Max/Pro subscription auth — alternative to ANTHROPIC_API_KEY (mint with: claude setup-token)
 SWARM_PROMPT_FILE    # path to role prompt
 SWARM_CONTEXT_JSON   # issue/PR context JSON string
 SWARM_ROLE           # role name
