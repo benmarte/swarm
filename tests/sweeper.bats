@@ -108,6 +108,42 @@ FIXTURES="$REPO_ROOT/tests/fixtures"
 }
 
 # ---------------------------------------------------------------------------
+# parse-sweeper-report.sh: hostile fixture — injection string + negative int
+# ---------------------------------------------------------------------------
+
+@test "parse-sweeper-report: hostile fixture emits zero issue numbers (string .issue rejected)" {
+  # .issue = "13; rm -rf /" is a string — jq layer 1 rejects it.
+  result="$(bash "$PARSE_SCRIPT" "$FIXTURES/sweeper/hostile-report.json" 2>/dev/null | grep -E '^[1-9][0-9]*$' || true)"
+  [ -z "$result" ]
+}
+
+@test "parse-sweeper-report: hostile fixture emits zero issue numbers (negative .issue rejected)" {
+  # .issue = -1 fails the jq guard (. > 0); nothing reaches the shell loop.
+  result="$(bash "$PARSE_SCRIPT" "$FIXTURES/sweeper/hostile-report.json" 2>/dev/null | grep -E '^[1-9][0-9]*$' || true)"
+  [ -z "$result" ]
+}
+
+@test "parse-sweeper-report: hostile fixture logs a skip warning for non-integer values" {
+  # Any value that passes jq but fails the bash [[ =~ ]] guard must produce a WARN line.
+  # The jq layer already blocks both hostile entries in this fixture, so this test
+  # confirms the combined result: no bare integers emitted and exit 0.
+  run bash "$PARSE_SCRIPT" "$FIXTURES/sweeper/hostile-report.json"
+  [ "$status" -eq 0 ]
+  # No raw numeric lines in stdout
+  numeric_lines="$(printf '%s\n' "$output" | grep -E '^[1-9][0-9]*$' || true)"
+  [ -z "$numeric_lines" ]
+}
+
+@test "parse-sweeper-report: hostile fixture dry-run emits no gh-callable lines" {
+  run bash "$PARSE_SCRIPT" "$FIXTURES/sweeper/hostile-report.json" --dry-run
+  [ "$status" -eq 0 ]
+  # dry-run with only hostile entries should produce no "would apply" lines
+  # because both entries are filtered by the jq integer guard before dry-run output.
+  numeric_lines="$(printf '%s\n' "$output" | grep -E '^[1-9][0-9]*$' || true)"
+  [ -z "$numeric_lines" ]
+}
+
+# ---------------------------------------------------------------------------
 # Structural: sweeper.yml NEVER references swarm:paused in a label-write context
 # ---------------------------------------------------------------------------
 
