@@ -145,21 +145,29 @@ jobs:
         env:
           STALL_THRESHOLD_HOURS: ${{ inputs.stall-threshold-hours || 48 }}
         run: |
-          # Fetch all open issues. We gather all pages (up to 100 per page).
-          # Filter to issues that carry at least one swarm:* label.
-          # For each, record: number, title, labels[], updated_at (last-activity proxy).
-          issues_raw="$(gh api \
-            "/repos/${GITHUB_REPOSITORY}/issues" \
-            --method GET \
-            --field state=open \
-            --field per_page=100 \
-            --field labels='swarm:go,swarm:spec,swarm:develop,swarm:qa,swarm:docs,swarm:needs-human,swarm:paused' \
-            --jq '[.[] | {
-              number: .number,
-              title: .title,
-              labels: [.labels[].name],
-              updated_at: .updated_at
-            }]' 2>/dev/null || printf '[]')"
+          # Fetch open issues one stage label at a time and merge. The Issues
+          # API treats a comma-separated `labels` value as AND semantics;
+          # swarm stage labels are mutually exclusive, so a combined query
+          # would always return []. One query per label, deduped by number.
+          # For each issue: number, title, labels[], updated_at (last-activity proxy).
+          issues_raw='[]'
+          for stage_label in 'swarm:go' 'swarm:spec' 'swarm:develop' 'swarm:qa' \
+            'swarm:docs' 'swarm:needs-human' 'swarm:paused'; do
+            label_page="$(gh api \
+              "/repos/${GITHUB_REPOSITORY}/issues" \
+              --method GET \
+              --field state=open \
+              --field per_page=100 \
+              --field labels="$stage_label" \
+              --jq '[.[] | {
+                number: .number,
+                title: .title,
+                labels: [.labels[].name],
+                updated_at: .updated_at
+              }]' 2>/dev/null || printf '[]')"
+            issues_raw="$(jq -n --argjson acc "$issues_raw" --argjson page "$label_page" \
+              '$acc + $page | unique_by(.number)')"
+          done
 
           # Build context JSON with threshold metadata.
           context_json="$(jq -n \
@@ -253,7 +261,8 @@ jobs:
           # Parse stuck issue numbers from the orchestrator report.
           # Only issues with recommendation=escalate are processed.
           # CONSTRAINT: This step only ever adds swarm:needs-human.
-          # It NEVER references, adds, or removes swarm:paused.
+          # It NEVER adds or removes swarm:paused — paused is read-only here,
+          # used solely to EXCLUDE human-parked issues from escalation.
           stuck_issues="$(bash "${WORKSPACE}/scripts/parse-sweeper-report.sh" outcome.json)"
 
           if [ -z "$stuck_issues" ]; then
@@ -264,6 +273,19 @@ jobs:
           while IFS= read -r issue_num; do
             issue_num="$(printf '%s' "$issue_num" | tr -d '\n\r')"
             [ -z "$issue_num" ] && continue
+
+            # Paused exclusion (SPEC §8.2): read the issue's live labels and
+            # skip escalation entirely when swarm:paused is present. This is a
+            # read-only check — the sweeper still never adds or removes
+            # swarm:paused itself.
+            live_labels="$(gh api "/repos/${GITHUB_REPOSITORY}/issues/${issue_num}" \
+              --jq '[.labels[].name] | join(",")' 2>/dev/null || printf '')"
+            case ",$live_labels," in
+              *,swarm:paused,*)
+                printf 'sweeper: skipping issue #%s — swarm:paused is human-parked\n' "$issue_num"
+                continue
+                ;;
+            esac
 
             if [ "$DRY_RUN" = "true" ]; then
               printf 'dry-run: would comment on issue #%s (stuck)\n' "$issue_num"

@@ -202,3 +202,12 @@ sys.exit(0)
 PYEOF
   [ "$?" -eq 0 ]
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Structural: gather step queries one label per request — a comma-joined
+# labels value is AND semantics on the Issues API and always returns [].
+# ─────────────────────────────────────────────────────────────────────────────
+@test "sweeper.yml: gather never uses a comma-joined labels filter" {
+  run grep -nE "labels=['\"]?[A-Za-z:_-]+," "$SWEEPER_YML"
+  [ "$status" -ne 0 ]
+}
