@@ -13,6 +13,10 @@
 #                        label writes are authored by a distinct actor.
 #                        When absent, GH_TOKEN is used with a warning.)
 #   POST_COMMENT       — "true" (default) or "false"
+#   ENABLED_SINKS      — comma-separated sink list (e.g. "slack,buzz"); empty disables notify
+#   BUZZ_CHANNEL       — NIP-29 channel UUID (required when buzz is in ENABLED_SINKS)
+#   SWARM_SLACK_WEBHOOK, SWARM_DISCORD_WEBHOOK, SWARM_TEAMS_WEBHOOK,
+#   SWARM_BUZZ_RELAY_URL, SWARM_BUZZ_PRIVATE_KEY — per-sink credentials
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
@@ -156,7 +160,8 @@ if [ "$next_n" -eq "$ATTEMPT_LIMIT" ]; then
   echo "$event_json"
 
   # Write event to file for notify to consume
-  echo "$event_json" > "${RUNNER_TEMP:-/tmp}/escalation-event.json"
+  _escalation_event_file="${RUNNER_TEMP:-/tmp}/escalation-event.json"
+  echo "$event_json" > "$_escalation_event_file"
 
   # Post escalation comment
   POST_COMMENT="${POST_COMMENT:-true}"
@@ -169,16 +174,16 @@ if [ "$next_n" -eq "$ATTEMPT_LIMIT" ]; then
       --field "body=${comment_body}"
   fi
 
-  # Notify hook (stub until #4 lands)
-  if command -v notify >/dev/null 2>&1; then
-    notify \
-      --event "escalation" \
-      --issue "${ISSUE_NUMBER}" \
-      --attempts "${next_n}" \
-      --maintainer "${MAINTAINER}" \
-      --repo "${GITHUB_REPOSITORY}" || true
+  # Notify fan-out (wired via ENABLED_SINKS; no-op when empty)
+  # NOTIFY_SCRIPT defaults to the notify.sh sitting next to this action.
+  # Tests can override it via NOTIFY_SCRIPT=<stub-path> to keep bats hermetic.
+  NOTIFY_SCRIPT="${NOTIFY_SCRIPT:-${GITHUB_ACTION_PATH:-$(cd "$(dirname "$0")" && pwd)}/../notify/notify.sh}"
+
+  if [ -n "${ENABLED_SINKS:-}" ] && [ -f "$NOTIFY_SCRIPT" ]; then
+    echo "bump-attempts: notify: fanning out to sinks: ${ENABLED_SINKS}"
+    EVENT_FILE="$_escalation_event_file" bash "$NOTIFY_SCRIPT"
   else
-    echo "bump-attempts: notify: stub (#4 pending)"
+    echo "bump-attempts: notify: no sinks configured (ENABLED_SINKS not set)"
   fi
 
   printf 'needs-human=true\n' >> "${GITHUB_OUTPUT:-/dev/null}"

@@ -9,7 +9,7 @@
 #
 # Exports the following GITHUB_OUTPUT keys (random delimiter for multiline safety):
 #   notify-slack, notify-discord, notify-teams, notify-buzz-channel,
-#   runner-label, develop-adapter, sweeper-schedule
+#   enabled-sinks, runner-label, develop-adapter, sweeper-schedule
 #
 # On invalid config: prints ajv errors to stderr and exits 1.
 set -euo pipefail
@@ -128,10 +128,29 @@ develop_adapter="$(jq -r '.develop.adapter | if . == null then "" else tostring 
 sweeper_schedule="$(jq -r '.sweeper.schedule | if . == null then "" else tostring end' "$_config_json")"
 llm_base_url="$(jq -r '.SWARM_LLM_BASE_URL | if . == null then "" else tostring end' "$_config_json")"
 
+# ── Compute enabled-sinks from notify booleans + buzz_channel presence ─────────
+# Build a comma-separated list of sinks whose config is live:
+#   slack/discord/teams: boolean true in config → include the sink name
+#   buzz: buzz_channel non-empty → include 'buzz'
+enabled_sinks=""
+if [ "$notify_slack" = "true" ]; then
+  enabled_sinks="${enabled_sinks:+$enabled_sinks,}slack"
+fi
+if [ "$notify_discord" = "true" ]; then
+  enabled_sinks="${enabled_sinks:+$enabled_sinks,}discord"
+fi
+if [ "$notify_teams" = "true" ]; then
+  enabled_sinks="${enabled_sinks:+$enabled_sinks,}teams"
+fi
+if [ -n "$notify_buzz_channel" ]; then
+  enabled_sinks="${enabled_sinks:+$enabled_sinks,}buzz"
+fi
+
 export_output "notify-slack"       "$notify_slack"
 export_output "notify-discord"     "$notify_discord"
 export_output "notify-teams"       "$notify_teams"
 export_output "notify-buzz-channel" "$notify_buzz_channel"
+export_output "enabled-sinks"      "$enabled_sinks"
 export_output "runner-label"       "$runner_label"
 export_output "develop-adapter"    "$develop_adapter"
 export_output "sweeper-schedule"   "$sweeper_schedule"
@@ -142,6 +161,7 @@ echo "  notify-slack=$notify_slack"
 echo "  notify-discord=$notify_discord"
 echo "  notify-teams=$notify_teams"
 echo "  notify-buzz-channel=$notify_buzz_channel"
+echo "  enabled-sinks=$enabled_sinks"
 echo "  runner-label=$runner_label"
 echo "  develop-adapter=$develop_adapter"
 echo "  sweeper-schedule=$sweeper_schedule"

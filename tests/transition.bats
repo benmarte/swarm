@@ -246,3 +246,93 @@ teardown() {
   grep -q "labels\[\]=swarm:spec" "$GH_STUB_LOG" || \
     grep -q "POST.*labels.*swarm:spec" "$GH_STUB_LOG"
 }
+
+# ---------------------------------------------------------------------------
+# Issue #53: notify sink end-to-end — ENABLED_SINKS=buzz invokes buzz adapter
+# ---------------------------------------------------------------------------
+
+@test "e2e: ENABLED_SINKS=buzz invokes buzz adapter with h-tag and event fields" {
+  export FROM_STAGE="swarm:go"
+  export TO_STAGE="swarm:spec"
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:go"}]'
+  export POST_COMMENT="false"
+  export GITHUB_ACTOR="testactor"
+
+  # Set up buzz env
+  export ENABLED_SINKS="buzz"
+  export BUZZ_CHANNEL="aabbccdd-1111-2222-3333-aabbccddeeff"
+  export SWARM_BUZZ_RELAY_URL="wss://relay.buzz.example"
+  export SWARM_BUZZ_PRIVATE_KEY="0000000000000000000000000000000000000000000000000000000000000001"
+
+  # NAK_LOG receives the nak invocation arguments
+  export NAK_LOG
+  NAK_LOG="$(mktemp)"
+
+  # Point NOTIFY_SCRIPT to the real notify.sh which uses stubs dir nak
+  # The stubs dir is already on PATH from setup()
+  # transition.sh picks up NOTIFY_SCRIPT override for hermetic testing
+  NOTIFY_SCRIPT_REAL="$REPO_ROOT/actions/notify/notify.sh"
+  export NOTIFY_SCRIPT="$NOTIFY_SCRIPT_REAL"
+
+  run bash "$TRANSITION_SH"
+  [ "$status" -eq 0 ]
+
+  # nak stub must have been called
+  [ -s "$NAK_LOG" ]
+
+  # Verify -t h=<channel> was passed to nak
+  grep -q "h=${BUZZ_CHANNEL}" "$NAK_LOG"
+
+  # Verify the event fields are present in the nak invocation
+  grep -q "stage_transition\|swarm:go.*swarm:spec\|Issue #42" "$NAK_LOG" || \
+    grep -q "swarm:go" "$NAK_LOG"
+
+  rm -f "$NAK_LOG"
+}
+
+@test "e2e: ENABLED_SINKS=buzz: sink secrets are not echoed to stdout" {
+  export FROM_STAGE="swarm:go"
+  export TO_STAGE="swarm:spec"
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:go"}]'
+  export POST_COMMENT="false"
+  export GITHUB_ACTOR="testactor"
+
+  export ENABLED_SINKS="buzz"
+  export BUZZ_CHANNEL="aabbccdd-1111-2222-3333-aabbccddeeff"
+  export SWARM_BUZZ_RELAY_URL="wss://relay.buzz.example"
+  export SWARM_BUZZ_PRIVATE_KEY="secret-private-key-must-not-appear-in-logs"
+
+  export NAK_LOG
+  NAK_LOG="$(mktemp)"
+
+  NOTIFY_SCRIPT_REAL="$REPO_ROOT/actions/notify/notify.sh"
+  export NOTIFY_SCRIPT="$NOTIFY_SCRIPT_REAL"
+
+  run bash "$TRANSITION_SH"
+  [ "$status" -eq 0 ]
+
+  # The private key value must not appear in stdout/stderr
+  [[ "$output" != *"secret-private-key-must-not-appear-in-logs"* ]]
+
+  rm -f "$NAK_LOG"
+}
+
+@test "e2e: ENABLED_SINKS empty disables notify fan-out (no nak call)" {
+  export FROM_STAGE="swarm:go"
+  export TO_STAGE="swarm:spec"
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:go"}]'
+  export POST_COMMENT="false"
+  unset ENABLED_SINKS
+
+  export NAK_LOG
+  NAK_LOG="$(mktemp)"
+
+  run bash "$TRANSITION_SH"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no sinks configured"* ]]
+
+  # nak must NOT have been called
+  [ ! -s "$NAK_LOG" ]
+
+  rm -f "$NAK_LOG"
+}

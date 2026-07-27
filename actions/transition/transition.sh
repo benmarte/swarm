@@ -148,7 +148,8 @@ NOTIFY_SCRIPT="${NOTIFY_SCRIPT:-${GITHUB_ACTION_PATH:-$(cd "$(dirname "$0")" && 
 
 if [ -n "${ENABLED_SINKS:-}" ] && [ -f "$NOTIFY_SCRIPT" ]; then
   # Build the canonical event JSON and pass it to the notify action script.
-  EVENT_FILE="$(mktemp)"
+  # .json suffix is required so ajv-cli treats the file as JSON, not YAML.
+  EVENT_FILE="$(mktemp).json"
   jq -n \
     --arg event "stage_transition" \
     --arg repo "${GITHUB_REPOSITORY}" \

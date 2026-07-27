@@ -14,8 +14,8 @@
 #   engine-repo    (string,  default: benmarte/swarm)   Engine repository (org/repo). Override for forks.
 #   engine-ref     (string,  default: v1)               Engine ref (tag, branch, or SHA) checked out into .swarm-engine/.
 #                                                        Must match the ref used in `uses: <repo>/.github/workflows/...@<ref>`.
-#   enabled-sinks  (string,  default: "")               Reserved: comma-separated notify sinks (slack,buzz,discord,teams).
-#   buzz-channel   (string,  default: "")               Reserved: Buzz/Nostr channel UUID.
+#   enabled-sinks  (string,  default: "")               Comma-separated notify sinks (slack,buzz,discord,teams). Derived from load-config.
+#   buzz-channel   (string,  default: "")               Buzz/Nostr channel UUID. Derived from load-config.
 #
 # Behavior per SPEC §2.2 / §2.3 / §8:
 #   engine-owns-everything for BOTH adapters:
@@ -78,12 +78,12 @@ on:
         type: string
         default: ""
       enabled-sinks:
-        description: Reserved — comma-separated notify sinks; wired to transition/notify in a future update.
+        description: Comma-separated notify sinks (slack,buzz,discord,teams). Derived from load-config; forwarded to develop-run for transition/bump-attempts notify fan-out.
         required: false
         type: string
         default: ""
       buzz-channel:
-        description: Reserved — Buzz/Nostr channel UUID; wired to notify passthrough in a future update.
+        description: Buzz/Nostr channel UUID. Derived from load-config; forwarded to develop-run for transition/bump-attempts notify fan-out.
         required: false
         type: string
         default: ""
@@ -115,6 +115,21 @@ on:
           Claude Code OAuth token for the claude-code-action adapter.
           Alternative to ANTHROPIC_API_KEY for Max/Pro subscription auth.
         required: false
+      SWARM_SLACK_WEBHOOK:
+        description: Slack incoming webhook URL for notify fan-out. Required when slack is in enabled-sinks.
+        required: false
+      SWARM_DISCORD_WEBHOOK:
+        description: Discord webhook URL for notify fan-out. Required when discord is in enabled-sinks.
+        required: false
+      SWARM_TEAMS_WEBHOOK:
+        description: Microsoft Teams webhook URL for notify fan-out. Required when teams is in enabled-sinks.
+        required: false
+      SWARM_BUZZ_RELAY_URL:
+        description: Buzz/Nostr relay wss:// URL for notify fan-out. Required when buzz is in enabled-sinks.
+        required: false
+      SWARM_BUZZ_PRIVATE_KEY:
+        description: Nostr private key (hex or nsec) for the buzz adapter. Required when buzz is in enabled-sinks.
+        required: false
 
 concurrency:
   group: swarm-${{ inputs.issue }}
@@ -132,6 +147,11 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       SWARM_LLM_MODEL: ${{ inputs.model }}
+      SWARM_SLACK_WEBHOOK: ${{ secrets.SWARM_SLACK_WEBHOOK }}
+      SWARM_DISCORD_WEBHOOK: ${{ secrets.SWARM_DISCORD_WEBHOOK }}
+      SWARM_TEAMS_WEBHOOK: ${{ secrets.SWARM_TEAMS_WEBHOOK }}
+      SWARM_BUZZ_RELAY_URL: ${{ secrets.SWARM_BUZZ_RELAY_URL }}
+      SWARM_BUZZ_PRIVATE_KEY: ${{ secrets.SWARM_BUZZ_PRIVATE_KEY }}
 
     steps:
       - name: Checkout
@@ -147,6 +167,12 @@ jobs:
           ref: ${{ inputs.engine-ref }}
           path: .swarm-engine
           persist-credentials: false
+
+      - name: Load and validate config
+        id: config
+        uses: ./.swarm-engine/actions/load-config
+        with:
+          config-file: swarm.config.yml
 
       - name: Fetch issue + spec context
         id: ctx
@@ -242,3 +268,5 @@ jobs:
           model: ${{ inputs.model }}
           maintainer: ${{ inputs.maintainer }}
           token: ${{ secrets.SWARM_TOKEN }}
+          enabled-sinks: ${{ steps.config.outputs.enabled-sinks }}
+          buzz-channel: ${{ steps.config.outputs.notify-buzz-channel }}

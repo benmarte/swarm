@@ -1406,3 +1406,204 @@ PYEOF
   run grep -q "Stage cascade will NOT trigger" "$SCRIPT"
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# Issue #53: notify sink plumbing end-to-end
+# ---------------------------------------------------------------------------
+
+@test "no 'Reserved' notify-sink language remains in any of the 7 reusable workflows" {
+  # After #53, enabled-sinks and buzz-channel are live — 'Reserved' wording
+  # should no longer describe them. (maintainer/qa-required-checks Reserved
+  # lines are intentionally excluded — they are for different future features.)
+  for wf in "$INTAKE" "$SPEC" "$DEVELOP" "$PR_GATES" "$FIX" "$DOCS" "$SWEEPER"; do
+    if grep -qE 'Reserved.*sink|Reserved.*buzz|Reserved.*notify.*wired|wired.*future.*update' "$wf"; then
+      printf 'FAIL: %s still contains Reserved notify-sink language\n' "$wf" >&2
+      grep -nE 'Reserved.*sink|Reserved.*buzz|Reserved.*notify.*wired|wired.*future.*update' "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+@test "load-config exports enabled-sinks output" {
+  run grep -q "enabled-sinks" "$REPO_ROOT/actions/load-config/action.yml"
+  [ "$status" -eq 0 ]
+  run grep -q "enabled-sinks" "$REPO_ROOT/actions/load-config/load-config.sh"
+  [ "$status" -eq 0 ]
+}
+
+@test "load-config.sh computes enabled-sinks from notify booleans and buzz_channel" {
+  # Structural: script must reference each notify field in the enabled-sinks block
+  SCRIPT="$REPO_ROOT/actions/load-config/load-config.sh"
+  run grep -q "notify_slack.*true\|notify_discord.*true\|notify_teams.*true\|buzz_channel" "$SCRIPT"
+  [ "$status" -eq 0 ]
+  run grep -q "enabled_sinks" "$SCRIPT"
+  [ "$status" -eq 0 ]
+}
+
+@test "transition action: declares enabled-sinks and buzz-channel inputs" {
+  ACTION="$REPO_ROOT/actions/transition/action.yml"
+  run grep -q "enabled-sinks:" "$ACTION"
+  [ "$status" -eq 0 ]
+  run grep -q "buzz-channel:" "$ACTION"
+  [ "$status" -eq 0 ]
+}
+
+@test "transition action: wires ENABLED_SINKS and BUZZ_CHANNEL to composite step env" {
+  ACTION="$REPO_ROOT/actions/transition/action.yml"
+  run grep -q "ENABLED_SINKS:" "$ACTION"
+  [ "$status" -eq 0 ]
+  run grep -q "BUZZ_CHANNEL:" "$ACTION"
+  [ "$status" -eq 0 ]
+}
+
+@test "transition action: wires all five sink secrets to composite step env" {
+  ACTION="$REPO_ROOT/actions/transition/action.yml"
+  for secret in SWARM_SLACK_WEBHOOK SWARM_DISCORD_WEBHOOK SWARM_TEAMS_WEBHOOK \
+                SWARM_BUZZ_RELAY_URL SWARM_BUZZ_PRIVATE_KEY; do
+    if ! grep -q "${secret}:" "$ACTION"; then
+      printf 'FAIL: transition action missing %s in step env\n' "$secret" >&2
+      return 1
+    fi
+  done
+}
+
+@test "bump-attempts action: declares enabled-sinks and buzz-channel inputs" {
+  ACTION="$REPO_ROOT/actions/bump-attempts/action.yml"
+  run grep -q "enabled-sinks:" "$ACTION"
+  [ "$status" -eq 0 ]
+  run grep -q "buzz-channel:" "$ACTION"
+  [ "$status" -eq 0 ]
+}
+
+@test "bump-attempts.sh: replaces stub notify with real notify.sh fan-out" {
+  SCRIPT="$REPO_ROOT/actions/bump-attempts/bump-attempts.sh"
+  # The old stub line must be gone
+  run grep -q "stub.*#4.*pending\|notify: stub" "$SCRIPT"
+  [ "$status" -ne 0 ]
+  # The new fan-out must reference ENABLED_SINKS and NOTIFY_SCRIPT
+  run grep -q "ENABLED_SINKS" "$SCRIPT"
+  [ "$status" -eq 0 ]
+  run grep -q "NOTIFY_SCRIPT" "$SCRIPT"
+  [ "$status" -eq 0 ]
+}
+
+@test "all 7 workflows declare SWARM_BUZZ_RELAY_URL in workflow_call secrets" {
+  for wf in "$INTAKE" "$SPEC" "$DEVELOP" "$PR_GATES" "$FIX" "$DOCS" "$SWEEPER"; do
+    if ! grep -q "SWARM_BUZZ_RELAY_URL" "$wf"; then
+      printf 'FAIL: %s does not declare SWARM_BUZZ_RELAY_URL under secrets\n' "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+@test "all 5 transition call sites pass enabled-sinks input" {
+  # intake: 2 transitions (confirmed + needs-info)
+  # spec: 1 transition (spec → develop)
+  # docs: 1 transition (docs → done)
+  # pr-gates/merge: 1 transition (qa → docs)
+  # Each transition uses: block must be followed by enabled-sinks:
+  run python3 - "$INTAKE" "$SPEC" "$DOCS" "$PR_GATES" <<'PYEOF'
+import sys, re
+
+failures = []
+for path in sys.argv[1:]:
+    with open(path) as fh:
+        content = fh.read()
+
+    uses_blocks = re.findall(
+        r'uses:\s*\./.swarm-engine/actions/transition.*?(?=uses:|steps:|jobs:|\Z)',
+        content, re.DOTALL
+    )
+    for block in uses_blocks:
+        if 'enabled-sinks:' not in block:
+            failures.append(f"{path}: transition block missing enabled-sinks: input")
+
+if failures:
+    for f in failures:
+        print(f"FAIL: {f}")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "develop.yml: develop-run invocation passes enabled-sinks and buzz-channel" {
+  run python3 - "$DEVELOP" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+uses_blocks = re.findall(
+    r'uses:\s*\./.swarm-engine/actions/develop-run.*?(?=uses:|steps:|jobs:|\Z)',
+    content, re.DOTALL
+)
+if not uses_blocks:
+    print("No develop-run uses blocks found")
+    sys.exit(1)
+
+for block in uses_blocks:
+    if 'enabled-sinks:' not in block:
+        print(f"ERROR: develop-run invocation missing enabled-sinks: input")
+        sys.exit(1)
+    if 'buzz-channel:' not in block:
+        print(f"ERROR: develop-run invocation missing buzz-channel: input")
+        sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "fix.yml: bump-attempts invocation passes enabled-sinks and buzz-channel" {
+  run python3 - "$FIX" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+uses_blocks = re.findall(
+    r'uses:\s*\./.swarm-engine/actions/bump-attempts.*?(?=uses:|steps:|jobs:|\Z)',
+    content, re.DOTALL
+)
+if not uses_blocks:
+    print("No bump-attempts uses blocks found")
+    sys.exit(1)
+
+for block in uses_blocks:
+    if 'enabled-sinks:' not in block:
+        print(f"ERROR: bump-attempts invocation missing enabled-sinks: input")
+        sys.exit(1)
+    if 'buzz-channel:' not in block:
+        print(f"ERROR: bump-attempts invocation missing buzz-channel: input")
+        sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "load-config step present in intake route job" {
+  run grep -q "load-config" "$INTAKE"
+  [ "$status" -eq 0 ]
+}
+
+@test "load-config step present in spec post-and-advance job" {
+  run grep -q "load-config" "$SPEC"
+  [ "$status" -eq 0 ]
+}
+
+@test "load-config step present in develop job" {
+  run grep -q "load-config" "$DEVELOP"
+  [ "$status" -eq 0 ]
+}
+
+@test "load-config step present in fix bump job" {
+  run grep -q "load-config" "$FIX"
+  [ "$status" -eq 0 ]
+}
+
+@test "load-config step present in pr-gates merge job" {
+  run grep -q "load-config" "$PR_GATES"
+  [ "$status" -eq 0 ]
+}

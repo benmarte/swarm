@@ -128,13 +128,14 @@ teardown() {
   [ "$stage_to" = "swarm:needs-human" ]
 }
 
-@test "2→3: logs notify stub" {
+@test "2→3: logs no-sinks when ENABLED_SINKS unset" {
   export GH_STUB_LABELS_JSON='[{"name":"swarm:attempts:2"}]'
+  unset ENABLED_SINKS
 
   run bash "$BUMP_SH"
   [ "$status" -eq 0 ]
 
-  [[ "$output" == *"notify: stub (#4 pending)"* ]]
+  [[ "$output" == *"notify: no sinks configured"* ]]
 }
 
 # ---------------------------------------------------------------------------

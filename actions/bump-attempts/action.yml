@@ -36,6 +36,19 @@ inputs:
       When absent the action falls back to GH_TOKEN and emits a warning.
     required: false
     default: ''
+  enabled-sinks:
+    description: >
+      Comma-separated list of notification sinks to fan out to on escalation
+      (e.g. "slack,buzz"). Derived from load-config outputs. Empty string
+      disables notify fan-out.
+    required: false
+    default: ''
+  buzz-channel:
+    description: >
+      Nostr/NIP-29 channel UUID for buzz notifications. Passed as BUZZ_CHANNEL
+      to bump-attempts.sh which forwards it to the buzz adapter on escalation.
+    required: false
+    default: ''
 
 outputs:
   needs-human:
@@ -63,5 +76,12 @@ runs:
         GH_TOKEN: ${{ env.GH_TOKEN }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         ACTION_PATH: ${{ github.action_path }}
+        ENABLED_SINKS: ${{ inputs.enabled-sinks }}
+        BUZZ_CHANNEL: ${{ inputs.buzz-channel }}
+        SWARM_SLACK_WEBHOOK: ${{ env.SWARM_SLACK_WEBHOOK }}
+        SWARM_DISCORD_WEBHOOK: ${{ env.SWARM_DISCORD_WEBHOOK }}
+        SWARM_TEAMS_WEBHOOK: ${{ env.SWARM_TEAMS_WEBHOOK }}
+        SWARM_BUZZ_RELAY_URL: ${{ env.SWARM_BUZZ_RELAY_URL }}
+        SWARM_BUZZ_PRIVATE_KEY: ${{ env.SWARM_BUZZ_PRIVATE_KEY }}
       run: |
         bash "$ACTION_PATH/bump-attempts.sh"

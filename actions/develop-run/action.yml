@@ -82,6 +82,19 @@ inputs:
       to GH_TOKEN and emit a warning.
     required: false
     default: ""
+  enabled-sinks:
+    description: >
+      Comma-separated list of notification sinks (e.g. "slack,buzz") forwarded
+      to transition.sh and bump-attempts.sh for notify fan-out. Derived from
+      load-config outputs. Empty string disables notify fan-out.
+    required: false
+    default: ""
+  buzz-channel:
+    description: >
+      Nostr/NIP-29 channel UUID forwarded to transition.sh and bump-attempts.sh
+      which pass it to the buzz adapter as BUZZ_CHANNEL.
+    required: false
+    default: ""
 
 outputs:
   pr-url:
@@ -108,5 +121,12 @@ runs:
         GH_TOKEN: ${{ env.GH_TOKEN }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         ACTION_PATH: ${{ github.action_path }}
+        ENABLED_SINKS: ${{ inputs.enabled-sinks }}
+        BUZZ_CHANNEL: ${{ inputs.buzz-channel }}
+        SWARM_SLACK_WEBHOOK: ${{ env.SWARM_SLACK_WEBHOOK }}
+        SWARM_DISCORD_WEBHOOK: ${{ env.SWARM_DISCORD_WEBHOOK }}
+        SWARM_TEAMS_WEBHOOK: ${{ env.SWARM_TEAMS_WEBHOOK }}
+        SWARM_BUZZ_RELAY_URL: ${{ env.SWARM_BUZZ_RELAY_URL }}
+        SWARM_BUZZ_PRIVATE_KEY: ${{ env.SWARM_BUZZ_PRIVATE_KEY }}
       run: |
         bash "$ACTION_PATH/develop-run.sh"

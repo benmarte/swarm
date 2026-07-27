@@ -42,7 +42,8 @@ if [ -z "${BUZZ_CHANNEL:-}" ]; then
   exit 1
 fi
 
-if ! command -v nak >/dev/null 2>&1; then
+NAK_BIN="${NAK_BIN:-nak}"
+if ! command -v "$NAK_BIN" >/dev/null 2>&1; then
   echo "notify/buzz: ERROR: 'nak' CLI not found — install it (brew install nak) and ensure it is on PATH" >&2
   exit 1
 fi
@@ -65,7 +66,7 @@ TEXT=$(jq -r \
 # Publish kind:9 event to the buzz relay (root post, no threading in v1)
 # ---------------------------------------------------------------------------
 echo "notify/buzz: publishing kind:9 event to relay $SWARM_BUZZ_RELAY_URL"
-if ! nak event --auth \
+if ! "$NAK_BIN" event --auth \
     --sec "$SWARM_BUZZ_PRIVATE_KEY" \
     -k 9 \
     -c "$TEXT" \
