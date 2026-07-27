@@ -12,7 +12,5 @@ Shipped:
 - `pm.md` — verdicts: `spec | escalated` (issue #5)
 - `reviewer.md` — verdicts: `approve | request-changes` (issue #8)
 - `security.md` — verdicts: `pass | fail | advisory` (issue #8)
-
-Planned:
-- `docs.md` — verdicts: `done | skipped`
-- `orchestrator.md` — verdicts: `report`
+- `docs.md` — verdicts: `done | skipped` (issue #9)
+- `orchestrator.md` — verdicts: `report` (issue #9)
