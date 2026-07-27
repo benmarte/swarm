@@ -1055,3 +1055,108 @@ sys.exit(0)
 PYEOF
   [ "$?" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# Engine self-checkout: issue #32
+#   - Zero 'uses: ./actions' in all 7 reusable workflows (grep-proof)
+#   - Zero workspace-relative engine-asset reads (github.workspace or ${WORKSPACE})
+#   - engine-ref input present on all 7 workflows
+#   - engine-repo input present on all 7 workflows
+# ---------------------------------------------------------------------------
+
+@test "no 'uses: ./actions' remains in any of the 7 reusable workflows" {
+  # All 16 local-action refs must have been rewritten to .swarm-engine/actions/<x>.
+  # Any remaining 'uses: ./actions' would break cross-repo callers (issue #32).
+  for wf in "$INTAKE" "$SPEC" "$DEVELOP" "$PR_GATES" "$FIX" "$DOCS" "$SWEEPER"; do
+    if grep -q "uses: \./actions" "$wf"; then
+      printf 'FAIL: %s still contains uses: ./actions\n' "$wf" >&2
+      grep -n "uses: \./actions" "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+@test "no workspace-relative engine-asset reads in any of the 7 reusable workflows" {
+  # Paths like ${{ github.workspace }}/prompts/... or ${WORKSPACE}/scripts/...
+  # resolve to the consumer's workspace, where engine files don't exist (issue #32).
+  for wf in "$INTAKE" "$SPEC" "$DEVELOP" "$PR_GATES" "$FIX" "$DOCS" "$SWEEPER"; do
+    if grep -qE 'github\.workspace.*/(prompts|scripts|schemas)' "$wf" || \
+       grep -qE '\$\{WORKSPACE\}/(prompts|scripts|schemas)' "$wf"; then
+      printf 'FAIL: %s contains workspace-relative engine-asset read\n' "$wf" >&2
+      grep -nE 'github\.workspace.*/(prompts|scripts|schemas)|\$\{WORKSPACE\}/(prompts|scripts|schemas)' "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+@test "engine-ref input declared in all 7 reusable workflows" {
+  for wf in "$INTAKE" "$SPEC" "$DEVELOP" "$PR_GATES" "$FIX" "$DOCS" "$SWEEPER"; do
+    if ! grep -q "engine-ref:" "$wf"; then
+      printf 'FAIL: %s is missing engine-ref: input\n' "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+@test "engine-repo input declared in all 7 reusable workflows" {
+  for wf in "$INTAKE" "$SPEC" "$DEVELOP" "$PR_GATES" "$FIX" "$DOCS" "$SWEEPER"; do
+    if ! grep -q "engine-repo:" "$wf"; then
+      printf 'FAIL: %s is missing engine-repo: input\n' "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+@test "every engine checkout step carries persist-credentials: false in all 7 workflows" {
+  # Engine checkouts are read-only; persisting the runner token in
+  # .swarm-engine/.git/config is unnecessary and increases attack surface.
+  # Each 'Checkout engine' step must carry persist-credentials: false.
+  # Consumer checkouts (no 'name: Checkout engine') are intentionally excluded.
+  WORKFLOW_FILE_LIST="$INTAKE $SPEC $DEVELOP $PR_GATES $FIX $DOCS $SWEEPER"
+  run python3 - $WORKFLOW_FILE_LIST <<'PYEOF'
+import sys
+
+failures = []
+for path in sys.argv[1:]:
+    with open(path) as fh:
+        lines = fh.readlines()
+
+    in_engine_checkout = False
+    engine_checkout_start = -1
+    step_indent = 0
+
+    for i, raw in enumerate(lines):
+        line = raw.rstrip('\n')
+        stripped = line.strip()
+
+        # Detect start of an engine checkout step
+        if stripped == '- name: Checkout engine':
+            in_engine_checkout = True
+            engine_checkout_start = i
+            step_indent = len(line) - len(line.lstrip())
+            has_persist_false = False
+            continue
+
+        if in_engine_checkout:
+            cur_indent = len(line) - len(line.lstrip()) if stripped else step_indent + 1
+            # A new step at same or lower indent ends the current step block
+            if stripped.startswith('- ') and cur_indent <= step_indent:
+                # End of step block — check if persist-credentials was found
+                if not has_persist_false:
+                    failures.append(f"{path}:{engine_checkout_start+1}: 'Checkout engine' step missing persist-credentials: false")
+                in_engine_checkout = False
+            elif 'persist-credentials' in line and 'false' in line:
+                has_persist_false = True
+
+    # Handle engine checkout at end of file
+    if in_engine_checkout and not has_persist_false:
+        failures.append(f"{path}:{engine_checkout_start+1}: 'Checkout engine' step missing persist-credentials: false")
+
+if failures:
+    for f in failures:
+        print(f"FAIL: {f}")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}

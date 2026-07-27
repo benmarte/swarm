@@ -14,6 +14,9 @@
 #   dry-run        (boolean, default: false)          When true, logs all intended mutations without executing any writes.
 #   adapter        (string, default: claude)          Agent adapter forwarded to agent-run.
 #   model          (string, default: "")              LLM model identifier set as SWARM_LLM_MODEL.
+#   engine-repo    (string, default: benmarte/swarm)  Engine repository (org/repo). Override for forks.
+#   engine-ref     (string, default: v1)              Engine ref (tag, branch, or SHA) checked out into .swarm-engine/.
+#                                                      Must match the ref used in `uses: <repo>/.github/workflows/...@<ref>`.
 #   enabled-sinks  (string, default: "")              Comma-separated notify sinks passthrough.
 #   buzz-channel   (string, default: "")              Buzz/Nostr channel UUID passthrough.
 #
@@ -67,6 +70,16 @@ on:
         required: false
         type: string
         default: ""
+      engine-repo:
+        description: Engine repository (org/repo). Override for forks.
+        required: false
+        type: string
+        default: benmarte/swarm
+      engine-ref:
+        description: Engine ref (tag, branch, or SHA) to check out into .swarm-engine/. Must match the ref pinned in the caller uses directive.
+        required: false
+        type: string
+        default: v1
 
 concurrency:
   group: swarm-${{ inputs.issue }}
@@ -90,6 +103,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Checkout engine
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.engine-repo }}
+          ref: ${{ inputs.engine-ref }}
+          path: .swarm-engine
+          persist-credentials: false
 
       - name: Fetch PR diff and issue context
         id: ctx
@@ -124,10 +145,10 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Run docs agent
-        uses: ./actions/agent-run
+        uses: ./.swarm-engine/actions/agent-run
         with:
           role: docs
-          prompt-file: ${{ github.workspace }}/prompts/docs.md
+          prompt-file: .swarm-engine/prompts/docs.md
           context-json: ${{ steps.ctx.outputs.json }}
           adapter: ${{ inputs.adapter }}
           timeout-minutes: '10'
@@ -150,10 +171,8 @@ jobs:
         # Deterministic structural check: if verdict=skipped and evidence.reason
         # is absent or empty, this step exits 1 and the job fails loudly.
         # Schema validation cannot express this constraint — this step owns it.
-        env:
-          WORKSPACE: ${{ github.workspace }}
         run: |
-          bash "${WORKSPACE}/scripts/check-skipped-reason.sh" outcome.json
+          bash ".swarm-engine/scripts/check-skipped-reason.sh" outcome.json
 
   # ── Glue: post comment + transition + close + notify ─────────────────────────
   glue:
@@ -169,6 +188,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Checkout engine
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.engine-repo }}
+          ref: ${{ inputs.engine-ref }}
+          path: .swarm-engine
+          persist-credentials: false
 
       - name: Post docs summary comment
         if: inputs.dry-run == false
@@ -203,7 +230,7 @@ jobs:
 
       - name: Transition swarm:docs → swarm:done
         if: inputs.dry-run == false
-        uses: ./actions/transition
+        uses: ./.swarm-engine/actions/transition
         with:
           issue-number: ${{ inputs.issue }}
           from-stage: swarm:docs
@@ -257,7 +284,7 @@ jobs:
 
       - name: Notify
         if: inputs.dry-run == false
-        uses: ./actions/notify
+        uses: ./.swarm-engine/actions/notify
         with:
           event-file: /tmp/swarm-notify-event.json
           enabled-sinks: ${{ inputs.enabled-sinks }}

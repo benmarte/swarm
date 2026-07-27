@@ -101,6 +101,8 @@ The `GITHUB_TOKEN` with least-privilege is the default. `SWARM_TOKEN` (the revie
 
 Swarm's own CI (`actionlint`) enforces that all `uses:` references follow this pattern.
 
+The engine repo itself is checked out via `actions/checkout` (SHA-pinned) into `path: .swarm-engine` using the `engine-ref` input (default: `v1`). Callers that require stronger supply-chain guarantees should override `engine-ref` with a full commit SHA rather than a mutable tag.
+
 **File:** All workflow YAML files (`.github/workflows/*.yml`); `.github/workflows/ci.yml` — `actionlint` static check.
 
 ---

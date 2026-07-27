@@ -7,6 +7,9 @@
 #   adapter        (string,  default: claude)           Agent adapter forwarded to agent-run. One of: claude, openai-compat.
 #   model          (string,  default: "")               LLM model identifier set as SWARM_LLM_MODEL env on the agent job.
 #                                                       Consumed by the openai-compat adapter (SWARM_LLM_MODEL); ignored by claude.
+#   engine-repo    (string,  default: benmarte/swarm)  Engine repository (org/repo). Override for forks.
+#   engine-ref     (string,  default: v1)              Engine ref (tag, branch, or SHA) checked out into .swarm-engine/.
+#                                                       Must match the ref used in `uses: <repo>/.github/workflows/...@<ref>`.
 #   enabled-sinks  (string,  default: "")               Reserved: comma-separated notify sinks (slack,buzz,discord,teams).
 #                                                       Will be wired to transition/notify when those actions expose the input.
 #   buzz-channel   (string,  default: "")               Reserved: Buzz/Nostr channel UUID. Will be wired to notify passthrough.
@@ -61,6 +64,16 @@ on:
         required: false
         type: string
         default: ""
+      engine-repo:
+        description: Engine repository (org/repo). Override for forks.
+        required: false
+        type: string
+        default: benmarte/swarm
+      engine-ref:
+        description: Engine ref (tag, branch, or SHA) to check out into .swarm-engine/. Must match the ref pinned in the caller uses directive.
+        required: false
+        type: string
+        default: v1
 
 concurrency:
   group: swarm-${{ inputs.issue }}
@@ -84,9 +97,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Checkout engine
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.engine-repo }}
+          ref: ${{ inputs.engine-ref }}
+          path: .swarm-engine
+          persist-credentials: false
+
       - name: Load and validate config
         id: config
-        uses: ./actions/load-config
+        uses: ./.swarm-engine/actions/load-config
         with:
           config-file: swarm.config.yml
 
@@ -106,10 +127,10 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Run validator agent
-        uses: ./actions/agent-run
+        uses: ./.swarm-engine/actions/agent-run
         with:
           role: validator
-          prompt-file: ${{ github.workspace }}/prompts/validator.md
+          prompt-file: .swarm-engine/prompts/validator.md
           context-json: ${{ steps.ctx.outputs.json }}
           adapter: ${{ inputs.adapter }}
           timeout-minutes: '10'
@@ -140,10 +161,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Checkout engine
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.engine-repo }}
+          ref: ${{ inputs.engine-ref }}
+          path: .swarm-engine
+          persist-credentials: false
+
       # ── confirmed: advance to swarm:spec ──────────────────────────────────
       - name: Transition confirmed → swarm:spec
         if: needs.agent.outputs.verdict == 'confirmed' && inputs.dry-run == false
-        uses: ./actions/transition
+        uses: ./.swarm-engine/actions/transition
         with:
           issue-number: ${{ inputs.issue }}
           from-stage: swarm:go
@@ -197,7 +226,7 @@ jobs:
 
       - name: Transition needs-info → swarm:needs-human
         if: needs.agent.outputs.verdict == 'needs-info' && inputs.dry-run == false
-        uses: ./actions/transition
+        uses: ./.swarm-engine/actions/transition
         with:
           issue-number: ${{ inputs.issue }}
           from-stage: swarm:go
