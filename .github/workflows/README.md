@@ -40,6 +40,12 @@ Runs the **validator** agent on a newly-queued issue and routes the verdict:
 | `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
 | `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
+**Caller-supplied secret (openai-compat adapter):**
+
+| Secret | Description |
+|--------|-------------|
+| `SWARM_LLM_API_KEY` | Bearer token for the OpenAI-compatible LLM endpoint. Optional — omit for local endpoints that need no authentication. |
+
 **Caller example:**
 
 ```yaml
@@ -87,6 +93,12 @@ Runs the **PM** agent on a confirmed issue and posts the resulting spec:
 | `buzz-channel` | string | `""` | *Reserved* — Buzz/Nostr channel UUID. Wired when `notify` passthrough is added. |
 | `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
 | `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
+
+**Caller-supplied secret (openai-compat adapter):**
+
+| Secret | Description |
+|--------|-------------|
+| `SWARM_LLM_API_KEY` | Bearer token for the OpenAI-compatible LLM endpoint. Optional — omit for local endpoints that need no authentication. |
 
 **Caller example:**
 
@@ -192,6 +204,7 @@ real GitHub PR review (approve / request-changes) authenticated via
 | Secret | Description |
 |--------|-------------|
 | `SWARM_TOKEN` | Fine-grained PAT with `pull-requests: write` scope for a distinct actor. Required when `dry-run: false`. |
+| `SWARM_LLM_API_KEY` | Bearer token for the OpenAI-compatible LLM endpoint. Optional — omit for local endpoints that need no authentication. |
 
 **Caller example:**
 
@@ -298,6 +311,12 @@ swarm:done`; closes the issue; notifies.
 | `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
 | `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
+**Caller-supplied secret (openai-compat adapter):**
+
+| Secret | Description |
+|--------|-------------|
+| `SWARM_LLM_API_KEY` | Bearer token for the OpenAI-compatible LLM endpoint. Optional — omit for local endpoints that need no authentication. |
+
 **Caller example:**
 
 ```yaml
@@ -350,6 +369,12 @@ labels, runs the **orchestrator** agent to audit for stalls, and applies
 | `buzz-channel` | string | `""` | Buzz/Nostr channel UUID passthrough. |
 | `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
 | `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
+
+**Caller-supplied secret (openai-compat adapter):**
+
+| Secret | Description |
+|--------|-------------|
+| `SWARM_LLM_API_KEY` | Bearer token for the OpenAI-compatible LLM endpoint. Optional — omit for local endpoints that need no authentication. |
 
 **Caller example (cron + dispatch):**
 

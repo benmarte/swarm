@@ -1,13 +1,14 @@
 #!/usr/bin/env bats
 # agent-run.bats — tests for agent-run composite action.
 # Covers: dispatch, validation, adapter outputs, role/adapter allowlists,
-# missing-secret detection, and CI skip behavior for openai-compat.
+# missing-secret detection, and SWARM_TEST_SKIP_LLM=1 behavior for openai-compat.
 # All tests use tests/stubs/ on PATH for stubbed binaries.
 #
 # openai-compat local smoke: see adapters/openai-compat.sh top-comment for
 # the exact env vars and one-liner to test against a local Ollama/LM Studio
-# endpoint. In CI, the test is skipped (with loud stderr log) when
-# SWARM_LLM_BASE_URL is unset — this is the ONLY allowed skip.
+# endpoint. In the bats suite, SWARM_TEST_SKIP_LLM=1 is the test-only escape
+# hatch when no endpoint is configured — this is the ONLY allowed skip.
+# Runtime jobs (GitHub Actions) must always have SWARM_LLM_BASE_URL set.
 
 REPO_ROOT="$(git -C "$(dirname "$BATS_TEST_FILENAME")" rev-parse --show-toplevel)"
 AGENT_RUN_SH="$REPO_ROOT/actions/agent-run/agent-run.sh"
@@ -109,15 +110,16 @@ teardown() {
   run bash "$AGENT_RUN_SH"
   [ "$status" -eq 0 ]
 
-  # openai-compat adapter — should CI-skip (no SWARM_LLM_BASE_URL set)
+  # openai-compat adapter — should test-skip (no SWARM_LLM_BASE_URL set)
   export SWARM_ADAPTER="openai-compat"
-  export CI="true"
+  export SWARM_TEST_SKIP_LLM="1"
   unset SWARM_LLM_BASE_URL 2>/dev/null || true
   run bash "$AGENT_RUN_SH"
-  # The openai-compat adapter exits 0 when CI-skipping (it hasn't written an
+  # The openai-compat adapter exits 0 when test-skipping (it hasn't written an
   # outcome.json, so validate-outcome would fail). We test the adapter directly
   # in the adapter-specific tests below.
   [ "$status" -ne 0 ] || true  # agent-run may fail due to missing outcome.json — that's expected
+  unset SWARM_TEST_SKIP_LLM 2>/dev/null || true
 }
 
 # =============================================================================
@@ -265,22 +267,22 @@ teardown() {
 # openai-compat.sh adapter — direct tests
 # =============================================================================
 
-@test "openai-compat adapter: CI skip when SWARM_LLM_BASE_URL unset and CI=true" {
-  export CI="true"
+@test "openai-compat adapter: test-skip when SWARM_LLM_BASE_URL unset and SWARM_TEST_SKIP_LLM=1" {
+  export SWARM_TEST_SKIP_LLM="1"
   unset SWARM_LLM_BASE_URL 2>/dev/null || true
+  unset CI 2>/dev/null || true
 
   run bash "$OPENAI_ADAPTER"
   # Exit 0 (graceful skip)
   [ "$status" -eq 0 ]
   # Must log WARNING to stderr
-  [[ "$output" == *"WARNING"* ]] || [[ "$stderr" == *"WARNING"* ]]
-  # Fallback: check that WARNING appeared in the combined output
   [[ "$output" == *"WARNING"* ]] || [[ "$output" == *"Skipping"* ]]
 }
 
-@test "openai-compat adapter: CI skip is loud (logs to stderr)" {
-  export CI="true"
+@test "openai-compat adapter: test-skip is loud (logs to stderr)" {
+  export SWARM_TEST_SKIP_LLM="1"
   unset SWARM_LLM_BASE_URL 2>/dev/null || true
+  unset CI 2>/dev/null || true
 
   # Capture stderr separately
   tmpout="$(mktemp)"
@@ -295,9 +297,21 @@ teardown() {
   rm -f "$tmpout" "$tmperr"
 }
 
-@test "openai-compat adapter: exits 1 when SWARM_LLM_BASE_URL unset and CI not set" {
+@test "openai-compat adapter: CI=true alone does NOT skip — exits 1 without SWARM_LLM_BASE_URL" {
+  export CI="true"
+  unset SWARM_LLM_BASE_URL 2>/dev/null || true
+  unset SWARM_TEST_SKIP_LLM 2>/dev/null || true
+
+  run bash "$OPENAI_ADAPTER"
+  # Must fail loudly: CI alone is no longer a skip heuristic
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"SWARM_LLM_BASE_URL"* ]]
+}
+
+@test "openai-compat adapter: exits 1 when SWARM_LLM_BASE_URL unset and no test-skip set" {
   unset CI 2>/dev/null || true
   unset SWARM_LLM_BASE_URL 2>/dev/null || true
+  unset SWARM_TEST_SKIP_LLM 2>/dev/null || true
 
   run bash "$OPENAI_ADAPTER"
   [ "$status" -ne 0 ]
@@ -308,6 +322,7 @@ teardown() {
   export SWARM_LLM_BASE_URL="http://localhost:11434/v1"
   unset SWARM_LLM_MODEL 2>/dev/null || true
   unset CI 2>/dev/null || true
+  unset SWARM_TEST_SKIP_LLM 2>/dev/null || true
 
   run bash "$OPENAI_ADAPTER"
   [ "$status" -ne 0 ]

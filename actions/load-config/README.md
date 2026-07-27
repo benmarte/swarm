@@ -19,6 +19,7 @@ Outputs:
 | `runner-label` | GitHub Actions runner label for agent jobs |
 | `develop-adapter` | Develop-stage adapter (`claude-code-action` or `headless`) |
 | `sweeper-schedule` | Cron schedule expression for the sweeper |
+| `swarm-llm-base-url` | Base URL for the OpenAI-compatible LLM endpoint (e.g. `http://localhost:11434/v1`). Empty string when `SWARM_LLM_BASE_URL` is absent from `swarm.config.yml`. |
 
 Usage:
 

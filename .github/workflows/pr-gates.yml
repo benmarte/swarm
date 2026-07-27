@@ -94,6 +94,11 @@ on:
           Fine-grained PAT with pull-requests:write scope for a distinct actor.
           Required when dry-run is false for the reviewer job to post a real PR review.
         required: false
+      SWARM_LLM_API_KEY:
+        description: >
+          Bearer token for the OpenAI-compatible LLM endpoint.
+          Optional — omit for local endpoints that need no authentication.
+        required: false
 
 concurrency:
   group: swarm-${{ inputs.issue }}
@@ -126,6 +131,12 @@ jobs:
           path: .swarm-engine
           persist-credentials: false
 
+      - name: Load and validate config
+        id: config
+        uses: ./.swarm-engine/actions/load-config
+        with:
+          config-file: swarm.config.yml
+
       - name: Fetch PR diff and metadata
         id: ctx
         env:
@@ -155,6 +166,9 @@ jobs:
 
       - name: Run reviewer agent
         uses: ./.swarm-engine/actions/agent-run
+        env:
+          SWARM_LLM_BASE_URL: ${{ steps.config.outputs.swarm-llm-base-url }}
+          SWARM_LLM_API_KEY: ${{ secrets.SWARM_LLM_API_KEY }}
         with:
           role: reviewer
           prompt-file: .swarm-engine/prompts/reviewer.md
@@ -291,6 +305,12 @@ jobs:
           path: .swarm-engine
           persist-credentials: false
 
+      - name: Load and validate config
+        id: config
+        uses: ./.swarm-engine/actions/load-config
+        with:
+          config-file: swarm.config.yml
+
       - name: Fetch PR diff and metadata
         id: ctx
         env:
@@ -320,6 +340,9 @@ jobs:
 
       - name: Run security agent
         uses: ./.swarm-engine/actions/agent-run
+        env:
+          SWARM_LLM_BASE_URL: ${{ steps.config.outputs.swarm-llm-base-url }}
+          SWARM_LLM_API_KEY: ${{ secrets.SWARM_LLM_API_KEY }}
         with:
           role: security
           prompt-file: .swarm-engine/prompts/security.md

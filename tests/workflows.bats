@@ -1160,3 +1160,90 @@ sys.exit(0)
 PYEOF
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# LLM plumbing: SWARM_LLM_BASE_URL wired in all 5 decision workflows (#38)
+# Each decision workflow's agent-run step must set SWARM_LLM_BASE_URL from
+# the load-config step output (env intermediary).
+# ---------------------------------------------------------------------------
+
+@test "all 5 decision workflows wire SWARM_LLM_BASE_URL env on agent-run step" {
+  for wf in "$INTAKE" "$SPEC" "$PR_GATES" "$DOCS" "$SWEEPER"; do
+    if ! grep -q "SWARM_LLM_BASE_URL" "$wf"; then
+      printf 'FAIL: %s does not wire SWARM_LLM_BASE_URL\n' "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+@test "all 5 decision workflows wire SWARM_LLM_API_KEY from secrets" {
+  for wf in "$INTAKE" "$SPEC" "$PR_GATES" "$DOCS" "$SWEEPER"; do
+    if ! grep -q "SWARM_LLM_API_KEY" "$wf"; then
+      printf 'FAIL: %s does not wire SWARM_LLM_API_KEY\n' "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+@test "all 5 decision workflows have load-config step for LLM base URL" {
+  for wf in "$INTAKE" "$SPEC" "$PR_GATES" "$DOCS" "$SWEEPER"; do
+    if ! grep -q "load-config" "$wf"; then
+      printf 'FAIL: %s does not have a load-config step\n' "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+@test "all 5 decision workflows declare SWARM_LLM_BASE_URL from load-config output" {
+  # The env value must reference steps.config.outputs.swarm-llm-base-url
+  for wf in "$INTAKE" "$SPEC" "$PR_GATES" "$DOCS" "$SWEEPER"; do
+    if ! grep -q "swarm-llm-base-url" "$wf"; then
+      printf 'FAIL: %s does not reference steps.config.outputs.swarm-llm-base-url\n' "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+# ---------------------------------------------------------------------------
+# LLM adapter: no CI=true skip heuristic remains (#38)
+# The old CI=true heuristic was replaced by SWARM_TEST_SKIP_LLM=1.
+# ---------------------------------------------------------------------------
+
+@test "openai-compat adapter: no CI=true skip heuristic" {
+  ADAPTER="$REPO_ROOT/actions/agent-run/adapters/openai-compat.sh"
+  # The old pattern was: [ -n "${CI:-}" ]  combined with a skip
+  # Ensure CI=true alone no longer triggers a skip (grep for the removed pattern)
+  if grep -qE '"\$\{CI:-\}"|\$CI' "$ADAPTER"; then
+    # CI variable references should not appear in a skip context
+    if grep -A2 'SWARM_LLM_BASE_URL.*CI' "$ADAPTER" 2>/dev/null | grep -q 'exit 0'; then
+      printf 'FAIL: openai-compat still has CI=true skip heuristic\n' >&2
+      return 1
+    fi
+  fi
+}
+
+@test "openai-compat adapter: SWARM_TEST_SKIP_LLM is the test-only escape hatch" {
+  ADAPTER="$REPO_ROOT/actions/agent-run/adapters/openai-compat.sh"
+  run grep -q "SWARM_TEST_SKIP_LLM" "$ADAPTER"
+  [ "$status" -eq 0 ]
+}
+
+@test "openai-compat adapter: loud exit 1 when SWARM_LLM_BASE_URL unset at runtime" {
+  # Structural check: adapter must reference SWARM_LLM_BASE_URL in an exit 1 guard
+  ADAPTER="$REPO_ROOT/actions/agent-run/adapters/openai-compat.sh"
+  # Verify the adapter has an exit 1 guard for missing SWARM_LLM_BASE_URL
+  run python3 - "$ADAPTER" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# Check for: if [ -z "${SWARM_LLM_BASE_URL:-}" ]; then ... exit 1
+# outside of a SWARM_TEST_SKIP_LLM block
+if not re.search(r'SWARM_LLM_BASE_URL.*exit 1', content, re.DOTALL):
+    print("ERROR: adapter does not have a loud exit 1 guard for SWARM_LLM_BASE_URL")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}

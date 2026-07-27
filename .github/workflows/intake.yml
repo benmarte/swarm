@@ -74,6 +74,12 @@ on:
         required: false
         type: string
         default: v1
+    secrets:
+      SWARM_LLM_API_KEY:
+        description: >
+          Bearer token for the OpenAI-compatible LLM endpoint.
+          Optional — omit for local endpoints that need no authentication.
+        required: false
 
 concurrency:
   group: swarm-${{ inputs.issue }}
@@ -128,6 +134,9 @@ jobs:
 
       - name: Run validator agent
         uses: ./.swarm-engine/actions/agent-run
+        env:
+          SWARM_LLM_BASE_URL: ${{ steps.config.outputs.swarm-llm-base-url }}
+          SWARM_LLM_API_KEY: ${{ secrets.SWARM_LLM_API_KEY }}
         with:
           role: validator
           prompt-file: .swarm-engine/prompts/validator.md

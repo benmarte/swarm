@@ -78,6 +78,12 @@ on:
         required: false
         type: string
         default: v1
+    secrets:
+      SWARM_LLM_API_KEY:
+        description: >
+          Bearer token for the OpenAI-compatible LLM endpoint.
+          Optional — omit for local endpoints that need no authentication.
+        required: false
 
 concurrency:
   group: swarm-${{ inputs.issue }}
@@ -109,6 +115,12 @@ jobs:
           path: .swarm-engine
           persist-credentials: false
 
+      - name: Load and validate config
+        id: config
+        uses: ./.swarm-engine/actions/load-config
+        with:
+          config-file: swarm.config.yml
+
       - name: Fetch issue context
         id: ctx
         env:
@@ -126,6 +138,9 @@ jobs:
 
       - name: Run PM agent
         uses: ./.swarm-engine/actions/agent-run
+        env:
+          SWARM_LLM_BASE_URL: ${{ steps.config.outputs.swarm-llm-base-url }}
+          SWARM_LLM_API_KEY: ${{ secrets.SWARM_LLM_API_KEY }}
         with:
           role: pm
           prompt-file: .swarm-engine/prompts/pm.md

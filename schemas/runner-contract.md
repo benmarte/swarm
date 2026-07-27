@@ -141,9 +141,13 @@ bash actions/agent-run/adapters/openai-compat.sh
 cat /tmp/outcome.json | jq .
 ```
 
-**CI behavior:** when `CI=true` and `SWARM_LLM_BASE_URL` is unset, the adapter
-exits 0 with a loud `WARNING:` to stderr and skips the live call. This is the
-ONLY allowed skip — it must always log.
+**Test-skip behavior:** when `SWARM_TEST_SKIP_LLM=1` and `SWARM_LLM_BASE_URL` is
+unset, the adapter exits 0 with a loud `WARNING:` to stderr and skips the live
+call. This is the ONLY allowed skip — it must always log. `SWARM_TEST_SKIP_LLM`
+is a bats-suite-only escape hatch; runtime GitHub Actions jobs must always have
+`SWARM_LLM_BASE_URL` set (missing URL causes a loud `exit 1` naming the
+variable and pointing to `swarm.config.yml` + load-config). The old `CI=true`
+heuristic was removed in #38 — `CI=true` alone now exits 1.
 
 ---
 
