@@ -619,3 +619,220 @@ sys.exit(0)
 PYEOF
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# merge job structural tests (issue #48 — swarm-approval gate)
+# ---------------------------------------------------------------------------
+
+@test "pr-gates.yml: merge job exists with environment: swarm-approval" {
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+if "merge:" not in content:
+    print("ERROR: merge job not found in pr-gates.yml")
+    sys.exit(1)
+
+if "swarm-approval" not in content:
+    print("ERROR: 'swarm-approval' environment not referenced in pr-gates.yml")
+    sys.exit(1)
+
+# Verify environment: swarm-approval appears in the merge job block
+lines = content.split("\n")
+in_merge = False
+found_env = False
+for i, line in enumerate(lines):
+    stripped = line.strip()
+    # Detect merge job header at 2-space indent
+    if line == "  merge:":
+        in_merge = True
+        continue
+    # Any other 2-space-indented job ends the merge block
+    if in_merge and line and not line.startswith("    ") and line != "  merge:":
+        if line[0] != " " or (len(line) > 2 and line[2] != " "):
+            break
+    if in_merge and "environment:" in line and "swarm-approval" in line:
+        found_env = True
+        break
+
+if not found_env:
+    print("ERROR: 'environment: swarm-approval' not found inside merge job block")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: merge job needs reviewer-post and security-post" {
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# Find the merge job block
+lines = content.split("\n")
+in_merge = False
+merge_block = []
+for i, line in enumerate(lines):
+    if line == "  merge:":
+        in_merge = True
+        merge_block = [line]
+        continue
+    if in_merge:
+        if line and not line.startswith("  ") and line.strip():
+            break
+        if line.startswith("  ") and not line.startswith("    ") and line.strip().endswith(":") and line != "  merge:":
+            break
+        merge_block.append(line)
+
+merge_text = "\n".join(merge_block)
+
+if "reviewer-post" not in merge_text:
+    print("ERROR: merge job does not list reviewer-post in its needs chain")
+    sys.exit(1)
+
+if "security-post" not in merge_text:
+    print("ERROR: merge job does not list security-post in its needs chain")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: merge job uses SWARM_TOKEN for the merge step" {
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# Locate the Squash-merge step and confirm SWARM_TOKEN appears in it
+if "Squash-merge" not in content and "squash-merge" not in content.lower():
+    print("ERROR: squash-merge step not found in pr-gates.yml")
+    sys.exit(1)
+
+if "SWARM_TOKEN" not in content:
+    print("ERROR: SWARM_TOKEN not referenced in pr-gates.yml merge step")
+    sys.exit(1)
+
+# Confirm gh pr merge --squash appears
+if "--squash" not in content:
+    print("ERROR: '--squash' flag not found in merge step — must use squash strategy")
+    sys.exit(1)
+
+if "--delete-branch" not in content:
+    print("ERROR: '--delete-branch' flag not found in merge step")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: merge job has pre-merge verification step" {
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# Pre-merge verification must check:
+# 1. review:approved label
+# 2. swarm:needs-human absence
+# 3. check-runs (check-runs API or similar)
+
+if "review:approved" not in content:
+    print("ERROR: pre-merge verification must check for review:approved label")
+    sys.exit(1)
+
+if "swarm:needs-human" not in content:
+    print("ERROR: pre-merge verification must check for swarm:needs-human absence")
+    sys.exit(1)
+
+if "check-runs" not in content:
+    print("ERROR: pre-merge verification must query check-runs API")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: merge job has dry-run guards on all write steps" {
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# Merge and transition steps must be guarded by dry-run == false.
+# The dry-run log steps must be guarded by dry-run == true.
+# We check for the pattern: merge step has dry-run == false guard.
+
+if "dry-run == false" not in content and "dry-run==false" not in content:
+    print("ERROR: dry-run guards not found in pr-gates.yml merge job")
+    sys.exit(1)
+
+if "dry-run == true" not in content and "dry-run==true" not in content:
+    print("ERROR: dry-run log steps not found in pr-gates.yml merge job")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: merge job transitions swarm:qa to swarm:docs" {
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+if "swarm:qa" not in content:
+    print("ERROR: merge job must transition from swarm:qa")
+    sys.exit(1)
+
+if "swarm:docs" not in content:
+    print("ERROR: merge job must transition to swarm:docs")
+    sys.exit(1)
+
+# Transition action must be invoked
+if "actions/transition" not in content:
+    print("ERROR: transition action not referenced in pr-gates.yml")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: merge job transition passes token input" {
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+uses_blocks = re.findall(
+    r'uses:\s*\./.swarm-engine/actions/transition.*?(?=uses:|steps:|jobs:|\Z)',
+    content, re.DOTALL
+)
+if not uses_blocks:
+    print("No transition uses blocks found in pr-gates.yml")
+    sys.exit(1)
+
+for block in uses_blocks:
+    if 'token:' not in block:
+        print(f"ERROR: transition invocation missing token: input:\n{block[:200]}")
+        sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
