@@ -150,7 +150,7 @@ single-stage invocations).
 Create a fine-grained PAT for a second GitHub account (or a bot account) with the
 following scopes scoped to the consumer repo:
 
-- **Pull requests: Read and write** — so `pr-gates.yml` can post real GitHub PR reviews as a distinct actor (`GITHUB_TOKEN` cannot approve a PR it opened)
+- **Pull requests: Read and write** — so `develop-run.sh` can create PRs as a distinct actor, bypassing the repository policy that blocks Actions from creating PRs and ensuring `pull_request` workflows (like `pr-gates.yml`) fire on the resulting PR (PRs opened by `GITHUB_TOKEN` do not trigger `pull_request` events); also so `pr-gates.yml` can post real GitHub PR reviews (`GITHUB_TOKEN` cannot approve a PR it opened)
 - **Issues: Read and write** — so stage-label transitions (swarm:go → swarm:spec → swarm:develop → etc.) are authored by a distinct actor and trigger the next cascade workflow
 
 ### Setup

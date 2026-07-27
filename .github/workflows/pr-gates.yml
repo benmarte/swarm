@@ -245,10 +245,22 @@ jobs:
           PR_NUMBER: ${{ inputs.pr }}
           SUMMARY: ${{ needs.reviewer.outputs.summary }}
         run: |
-          gh pr review "$PR_NUMBER" \
+          if ! gh pr review "$PR_NUMBER" \
             --approve \
             --body "$SUMMARY" \
-            --repo "$GITHUB_REPOSITORY"
+            --repo "$GITHUB_REPOSITORY"; then
+            printf 'reviewer-post: review decoration failed (self-review 422 — expected when SWARM_TOKEN authored the PR); review:approved label remains the authoritative gate\n' >&2
+          fi
+
+      - name: Apply review:approved label
+        if: needs.reviewer.outputs.verdict == 'approve' && inputs.dry-run == false
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+        run: |
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels" \
+            --method POST \
+            -f "name=review:approved"
 
       - name: Post PR review (request-changes)
         if: needs.reviewer.outputs.verdict == 'request-changes' && inputs.dry-run == false && steps.check-review.outputs.skip != 'true'
@@ -256,10 +268,12 @@ jobs:
           PR_NUMBER: ${{ inputs.pr }}
           SUMMARY: ${{ needs.reviewer.outputs.summary }}
         run: |
-          gh pr review "$PR_NUMBER" \
+          if ! gh pr review "$PR_NUMBER" \
             --request-changes \
             --body "$SUMMARY" \
-            --repo "$GITHUB_REPOSITORY"
+            --repo "$GITHUB_REPOSITORY"; then
+            printf 'reviewer-post: review decoration failed (self-review 422 — expected when SWARM_TOKEN authored the PR); review:approved label remains the authoritative gate\n' >&2
+          fi
 
       - name: Dry-run log (reviewer)
         if: inputs.dry-run == true

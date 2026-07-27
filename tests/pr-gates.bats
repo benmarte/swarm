@@ -292,6 +292,79 @@ PYEOF
   [ "$status" -eq 0 ]
 }
 
+@test "pr-gates.yml: reviewer-post review decoration is failure-tolerant (self-review 422)" {
+  # When SWARM_TOKEN authored the PR, GitHub returns 422 (self-review not allowed).
+  # The 'gh pr review' call must be wrapped in failure-tolerant logic so the
+  # step logs and continues rather than hard-failing the job.
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+if "if ! gh pr review" not in content:
+    print("ERROR: 'gh pr review' must be wrapped in a failure-tolerant 'if !' guard")
+    sys.exit(1)
+
+if "review decoration failed" not in content or "self-review 422" not in content:
+    print("ERROR: failure log message ('review decoration failed' / 'self-review 422') not found")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: review:approved label-apply step is separate from gh pr review decoration" {
+  # The label write must live in its own step so a 422 on the review decoration
+  # does not prevent the label from being applied (the authoritative gate).
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+if "review:approved" not in content:
+    print("ERROR: 'review:approved' label not referenced in pr-gates.yml")
+    sys.exit(1)
+
+# Locate the 'gh pr review' line (the review decoration). The --approve flag
+# may appear on the following continuation line, so scan for 'gh pr review'
+# alone and confirm --approve appears within the next 3 lines.
+lines = content.split("\n")
+approve_region_end = None
+for i, line in enumerate(lines):
+    if "gh pr review" in line:
+        window = "\n".join(lines[i:i+4])
+        if "--approve" in window:
+            approve_region_end = i + 4
+            break
+
+if approve_region_end is None:
+    print("ERROR: 'gh pr review --approve' block not found")
+    sys.exit(1)
+
+# After the approve region, verify a new step 'name:' header precedes the
+# 'review:approved' label-apply (i.e., label write is in a separate step).
+found_separator = False
+found_label = False
+for i in range(approve_region_end, len(lines)):
+    stripped = lines[i].strip()
+    if "name:" in stripped and "Apply review" in stripped:
+        found_separator = True
+    if found_separator and "review:approved" in lines[i] and "name:" not in lines[i]:
+        found_label = True
+        break
+
+if not found_label:
+    print("ERROR: 'review:approved' label-apply must be in a separate named step after 'gh pr review'")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
 @test "pr-gates.yml: QA-is-required-checks decision documented in workflow header" {
   run grep -q "QA" "$PR_GATES"
   [ "$status" -eq 0 ]

@@ -646,6 +646,72 @@ STUB
 # engine: re-run when branch already exists on remote
 # =============================================================================
 
+# =============================================================================
+# SWARM_TOKEN → GH_TOKEN for PR operations (#42)
+# =============================================================================
+
+@test "engine: uses SWARM_TOKEN (not GH_TOKEN) for gh pr create when SWARM_TOKEN is set" {
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:develop"}]'
+  export SWARM_TOKEN="swarm-pat-value"
+  export GH_TOKEN="default-gh-token"
+
+  run bash "$ENGINE_SH"
+  [ "$status" -eq 0 ]
+
+  # Stub summary line must record TOKEN_SOURCE=swarm for the pr create call.
+  grep -q "gh-summary pr create TOKEN_SOURCE=swarm" "$GH_STUB_LOG"
+}
+
+@test "engine: uses SWARM_TOKEN for gh api PR verify when SWARM_TOKEN is set" {
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:develop"}]'
+  export SWARM_TOKEN="swarm-pat-value"
+  export GH_TOKEN="default-gh-token"
+
+  run bash "$ENGINE_SH"
+  [ "$status" -eq 0 ]
+
+  # Stub summary line for gh api must carry TOKEN_SOURCE=swarm.
+  grep -q "gh-summary api.*TOKEN_SOURCE=swarm" "$GH_STUB_LOG"
+}
+
+@test "engine: emits loud warning naming both failure modes when SWARM_TOKEN absent" {
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:develop"}]'
+  unset SWARM_TOKEN
+
+  run bash "$ENGINE_SH"
+  # Engine may succeed (GH_TOKEN fallback) — we only care about the warning
+  [[ "$output" == *"SWARM_TOKEN"* ]]
+  [[ "$output" == *"policy"* ]] || [[ "$output" == *"not permitted"* ]]
+  [[ "$output" == *"pull_request"* ]] || [[ "$output" == *"pr-gates"* ]] || [[ "$output" == *"recursion"* ]]
+}
+
+@test "engine: falls back to default GH_TOKEN for PR when SWARM_TOKEN absent (TOKEN_SOURCE=default in log)" {
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:develop"}]'
+  unset SWARM_TOKEN
+
+  run bash "$ENGINE_SH"
+  [ "$status" -eq 0 ]
+
+  grep -q "gh-summary pr create TOKEN_SOURCE=default" "$GH_STUB_LOG"
+}
+
+@test "engine: SWARM_TOKEN still available to engine PR step after headless adapter strips credentials" {
+  # The headless adapter unsets GH_TOKEN/SWARM_TOKEN in its child env only.
+  # After adapter returns, develop-run.sh must still read SWARM_TOKEN from
+  # its own env and use it for PR create/verify.
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:develop"}]'
+  export SWARM_TOKEN="post-adapter-pat"
+  export GH_TOKEN="fake-gh-token"
+
+  run bash "$ENGINE_SH"
+  [ "$status" -eq 0 ]
+
+  # Engine must have completed the branch push and PR creation
+  git -C "$BARE_DIR" show-ref --verify --quiet "refs/heads/swarm/issue-42"
+  # PR must have been created using the swarm token, not the default
+  grep -q "gh-summary pr create TOKEN_SOURCE=swarm" "$GH_STUB_LOG"
+}
+
 @test "engine: re-runs cleanly when swarm branch already exists on remote" {
   # Pre-push the branch as if a prior attempt partially succeeded
   git -C "$WORK_DIR" checkout -b "swarm/issue-42" "origin/main" -q

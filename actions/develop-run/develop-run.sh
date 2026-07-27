@@ -224,6 +224,26 @@ if [ -z "$pr_title" ]; then
   pr_title="feat: implement issue #$ISSUE_NUMBER"
 fi
 
+# ---------------------------------------------------------------------------
+# TOKEN SELECTION: SWARM_TOKEN for PR ops (policy bypass + pr-gates cascade)
+# ---------------------------------------------------------------------------
+# git push stays on GH_TOKEN (checkout credentials); only PR creation and
+# PR verify move to the PAT.  Scoped env-prefix per call — no global reassign.
+_pr_token="${SWARM_TOKEN:-}"
+_pr_token_source="default"
+if [ -n "$_pr_token" ]; then
+  _pr_token_source="swarm"
+else
+  _pr_token="$GH_TOKEN"
+  echo "develop-run: WARNING: SWARM_TOKEN is not set; falling back to GH_TOKEN for PR creation." >&2
+  echo "  Failure mode 1: GitHub Actions policy may block PR creation" \
+       "('GitHub Actions is not permitted to create or approve pull requests')." >&2
+  echo "  Failure mode 2: Even if PR creation succeeds, pull_request workflows (pr-gates)" \
+       "will NOT fire — GITHUB_TOKEN triggers are suppressed by GitHub's recursion guard." >&2
+  echo "  Fix: set SWARM_TOKEN to a fine-grained PAT with pull-requests:write + issues:write." >&2
+fi
+echo "develop-run: PR token source: $_pr_token_source"
+
 # -- gh pr create ----------------------------------------------------------
 pr_body="$(cat <<EOF
 Automated implementation of issue #${ISSUE_NUMBER} by the swarm develop pipeline.
@@ -236,7 +256,8 @@ EOF
 )"
 
 echo "develop-run: creating PR on $GITHUB_REPOSITORY"
-gh_pr_url="$(gh pr create \
+# shellcheck disable=SC2097,SC2098
+gh_pr_url="$(GH_TOKEN="$_pr_token" _GH_TOKEN_SOURCE="$_pr_token_source" gh pr create \
   --base "$BASE_BRANCH" \
   --head "$BRANCH_NAME" \
   --title "$pr_title" \
@@ -253,7 +274,8 @@ echo "develop-run: verifying PR via gh api"
 repo_owner="${GITHUB_REPOSITORY%%/*}"
 encoded_head="${repo_owner}:${BRANCH_NAME}"
 
-verify_json="$(gh api \
+# shellcheck disable=SC2097,SC2098
+verify_json="$(GH_TOKEN="$_pr_token" _GH_TOKEN_SOURCE="$_pr_token_source" gh api \
   "repos/$GITHUB_REPOSITORY/pulls" \
   --method GET \
   -f "head=$encoded_head" \
