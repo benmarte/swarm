@@ -300,14 +300,15 @@ teardown() {
 # =============================================================================
 
 @test "engine: calls bump-attempts when adapter produces no changes" {
-  # Set up: pre-commit the spec file so the working tree starts clean
-  git -C "$WORK_DIR" checkout -b "swarm/issue-42" "origin/main" -q
+  # Set up: spec committed to origin/main so branch starts at base (ahead=0).
+  # Engine re-writes spec (same content → nothing staged) + NOOP adapter → bump.
   mkdir -p "$WORK_DIR/docs/specs"
   printf '%s\n' "$SPEC_BODY" > "$WORK_DIR/docs/specs/issue-42.md"
   git -C "$WORK_DIR" add .
-  git -C "$WORK_DIR" commit -m "spec" -q
-  git -C "$WORK_DIR" push origin "swarm/issue-42" -q
-  git -C "$WORK_DIR" checkout main -q
+  git -C "$WORK_DIR" commit -m "spec-on-main" -q
+  git -C "$WORK_DIR" push origin main -q
+  # Push swarm branch at same level as main (ahead=0 relative to origin/main)
+  git -C "$WORK_DIR" push origin main:"refs/heads/swarm/issue-42"
 
   # No-op adapter (writes nothing)
   NOOP_CMD_FILE="$(mktemp)"
@@ -327,13 +328,13 @@ teardown() {
 }
 
 @test "engine: does NOT create PR when adapter produces no changes" {
-  git -C "$WORK_DIR" checkout -b "swarm/issue-42" "origin/main" -q
+  # Branch at base level (ahead=0) + NOOP adapter → bump, no PR.
   mkdir -p "$WORK_DIR/docs/specs"
   printf '%s\n' "$SPEC_BODY" > "$WORK_DIR/docs/specs/issue-42.md"
   git -C "$WORK_DIR" add .
-  git -C "$WORK_DIR" commit -m "spec" -q
-  git -C "$WORK_DIR" push origin "swarm/issue-42" -q
-  git -C "$WORK_DIR" checkout main -q
+  git -C "$WORK_DIR" commit -m "spec-on-main" -q
+  git -C "$WORK_DIR" push origin main -q
+  git -C "$WORK_DIR" push origin main:"refs/heads/swarm/issue-42"
 
   NOOP_CMD_FILE="$(mktemp)"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$NOOP_CMD_FILE"
@@ -730,4 +731,113 @@ STUB
   # Branch must still exist (checked out from remote, not re-created)
   git -C "$BARE_DIR" show-ref --verify --quiet "refs/heads/swarm/issue-42"
   grep -q "gh pr create" "$GH_STUB_LOG"
+}
+
+# =============================================================================
+# Issue #44: clean-but-ahead resume must proceed to PR, not burn attempts
+# =============================================================================
+
+@test "engine: clean-but-ahead resume reaches PR creation without bump" {
+  # Simulate a prior run that succeeded through push but died before PR creation:
+  # the branch is ahead of base with implementation already committed.
+  git -C "$WORK_DIR" checkout -b "swarm/issue-42" "origin/main" -q
+  mkdir -p "$WORK_DIR/docs/specs"
+  printf '%s\n' "$SPEC_BODY" > "$WORK_DIR/docs/specs/issue-42.md"
+  printf 'prior implementation\n' > "$WORK_DIR/implementation.txt"
+  git -C "$WORK_DIR" add .
+  git -C "$WORK_DIR" commit -m "feat: implement issue #42 [adapter=headless]" -q
+  git -C "$WORK_DIR" push origin "swarm/issue-42" -q
+  git -C "$WORK_DIR" checkout main -q
+
+  # No-op adapter — makes no new changes
+  NOOP_CMD_FILE="$(mktemp)"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$NOOP_CMD_FILE"
+  chmod +x "$NOOP_CMD_FILE"
+  export ADAPTER_CMD="bash $NOOP_CMD_FILE"
+
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:develop"}]'
+
+  run bash "$ENGINE_SH"
+  [ "$status" -eq 0 ] || {
+    echo "# output: $output" >&3
+    false
+  }
+
+  # Must log resume message
+  [[ "$output" == *"resuming existing implementation"* ]]
+
+  # PR must have been created
+  grep -q "gh pr create" "$GH_STUB_LOG"
+
+  # Transition to swarm:qa must have fired
+  grep -q "swarm:qa" "$GH_STUB_LOG"
+
+  # bump-attempts must NOT have been called
+  ! grep -q "swarm:attempts" "$GH_STUB_LOG"
+
+  rm -f "$NOOP_CMD_FILE"
+}
+
+@test "engine: no-edit adapter at base level still bumps attempts (regression guard)" {
+  # Regression guard: branch NOT ahead of base (spec committed to main, branch
+  # pushed at same level) + NOOP adapter → genuine no-work → bump, no PR.
+  mkdir -p "$WORK_DIR/docs/specs"
+  printf '%s\n' "$SPEC_BODY" > "$WORK_DIR/docs/specs/issue-42.md"
+  git -C "$WORK_DIR" add .
+  git -C "$WORK_DIR" commit -m "spec-on-main" -q
+  git -C "$WORK_DIR" push origin main -q
+  git -C "$WORK_DIR" push origin main:"refs/heads/swarm/issue-42"
+
+  # No-op adapter
+  NOOP_CMD_FILE="$(mktemp)"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$NOOP_CMD_FILE"
+  chmod +x "$NOOP_CMD_FILE"
+  export ADAPTER_CMD="bash $NOOP_CMD_FILE"
+
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:attempts:1"},{"name":"swarm:develop"}]'
+
+  run bash "$ENGINE_SH"
+  [ "$status" -ne 0 ]
+
+  # bump-attempts must have been invoked
+  grep -q "swarm:attempts" "$GH_STUB_LOG"
+
+  # PR must NOT have been created
+  ! grep -q "gh pr create" "$GH_STUB_LOG"
+
+  rm -f "$NOOP_CMD_FILE"
+}
+
+@test "engine: dirty-state check excludes .swarm-engine from commit" {
+  # .swarm-engine/ changes are never staged (excluded via ':!.swarm-engine').
+  # When only .swarm-engine/ is written and the branch is not ahead, the engine
+  # correctly treats it as no-diff and bumps attempts.
+  # Set up: spec committed to main so branch starts at base level (ahead=0).
+  mkdir -p "$WORK_DIR/docs/specs"
+  printf '%s\n' "$SPEC_BODY" > "$WORK_DIR/docs/specs/issue-42.md"
+  git -C "$WORK_DIR" add .
+  git -C "$WORK_DIR" commit -m "spec-on-main" -q
+  git -C "$WORK_DIR" push origin main -q
+  git -C "$WORK_DIR" push origin main:"refs/heads/swarm/issue-42"
+
+  # Adapter that only writes to .swarm-engine/ (excluded from staging)
+  SWARM_ENGINE_ONLY_CMD="$(mktemp)"
+  cat > "$SWARM_ENGINE_ONLY_CMD" <<'STUB'
+#!/usr/bin/env bash
+mkdir -p .swarm-engine
+printf 'engine-only content\n' > .swarm-engine/state.json
+exit 0
+STUB
+  chmod +x "$SWARM_ENGINE_ONLY_CMD"
+  export ADAPTER_CMD="bash $SWARM_ENGINE_ONLY_CMD"
+
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:attempts:1"},{"name":"swarm:develop"}]'
+
+  run bash "$ENGINE_SH"
+  [ "$status" -ne 0 ]
+
+  # bump-attempts must have been called (.swarm-engine not counted as a diff)
+  grep -q "swarm:attempts" "$GH_STUB_LOG"
+
+  rm -f "$SWARM_ENGINE_ONLY_CMD"
 }
