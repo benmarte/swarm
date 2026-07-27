@@ -199,19 +199,50 @@ teardown() {
 }
 
 @test "claude adapter: exits 1 when ANTHROPIC_API_KEY not set" {
-  unset ANTHROPIC_API_KEY
+  unset ANTHROPIC_API_KEY 2>/dev/null || true
+  unset CLAUDE_CODE_OAUTH_TOKEN 2>/dev/null || true
 
   run bash "$CLAUDE_ADAPTER"
   [ "$status" -ne 0 ]
   [[ "$output" == *"ANTHROPIC_API_KEY"* ]]
+  [[ "$output" == *"CLAUDE_CODE_OAUTH_TOKEN"* ]]
 }
 
 @test "claude adapter: exits 1 when ANTHROPIC_API_KEY is empty" {
   export ANTHROPIC_API_KEY=""
+  unset CLAUDE_CODE_OAUTH_TOKEN 2>/dev/null || true
 
   run bash "$CLAUDE_ADAPTER"
   [ "$status" -ne 0 ]
   [[ "$output" == *"ANTHROPIC_API_KEY"* ]]
+  [[ "$output" == *"CLAUDE_CODE_OAUTH_TOKEN"* ]]
+}
+
+@test "claude adapter: oauth-only path succeeds" {
+  unset ANTHROPIC_API_KEY 2>/dev/null || true
+  export CLAUDE_CODE_OAUTH_TOKEN="oauth-stub-token"
+
+  run bash "$CLAUDE_ADAPTER"
+  [ "$status" -eq 0 ]
+  [ -f "$OUTCOME_FILE" ]
+}
+
+@test "claude adapter: exits 1 when neither auth var set" {
+  unset ANTHROPIC_API_KEY 2>/dev/null || true
+  unset CLAUDE_CODE_OAUTH_TOKEN 2>/dev/null || true
+
+  run bash "$CLAUDE_ADAPTER"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ANTHROPIC_API_KEY"* ]]
+  [[ "$output" == *"CLAUDE_CODE_OAUTH_TOKEN"* ]]
+}
+
+@test "claude adapter: does NOT echo CLAUDE_CODE_OAUTH_TOKEN value in output" {
+  unset ANTHROPIC_API_KEY 2>/dev/null || true
+  export CLAUDE_CODE_OAUTH_TOKEN="oauth-secret-that-must-not-be-logged"
+
+  run bash "$CLAUDE_ADAPTER"
+  [[ "$output" != *"oauth-secret-that-must-not-be-logged"* ]]
 }
 
 @test "claude adapter: does NOT echo ANTHROPIC_API_KEY value in output" {

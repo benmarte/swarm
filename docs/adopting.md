@@ -37,10 +37,20 @@ cp /path/to/swarm/.env.example .env
 
 Open `.env` and fill in each value. The template lists every credential name swarm can consume. You only need to fill the ones for features you enable:
 
+### Authentication options
+
+The claude adapter supports two mutually exclusive auth methods — set exactly one:
+
+- **`ANTHROPIC_API_KEY`** — pay-per-token via Anthropic API billing. Create at [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys).
+- **`CLAUDE_CODE_OAUTH_TOKEN`** — consumes your Claude Max or Pro subscription quota instead of API billing. Mint with `claude setup-token` (requires an active Max or Pro subscription).
+
+You do not need both. If both are set, `ANTHROPIC_API_KEY` takes precedence in the adapter.
+
 | Variable | Required for |
 |---|---|
 | `SWARM_GITHUB_TOKEN` | Cross-repo ops (reserved for future use; `SWARM_TOKEN` is the reviewer PAT — see below) |
-| `ANTHROPIC_API_KEY` | claude adapter (default for all decision roles + develop) |
+| `ANTHROPIC_API_KEY` | claude adapter — pay-per-token auth (see also `CLAUDE_CODE_OAUTH_TOKEN`) |
+| `CLAUDE_CODE_OAUTH_TOKEN` | claude adapter — Max/Pro subscription auth (alternative to `ANTHROPIC_API_KEY`) |
 | `SWARM_LLM_API_KEY` | openai-compat adapter against a cloud endpoint that requires a bearer token |
 | `SWARM_SLACK_WEBHOOK` | Slack notifications |
 | `SWARM_DISCORD_WEBHOOK` | Discord notifications |

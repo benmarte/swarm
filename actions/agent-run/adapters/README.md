@@ -8,7 +8,7 @@ Required adapter interface (see `schemas/runner-contract.md`):
 - Exit 0 on success; non-zero causes the job to fail
 
 V1 adapters (shipped with issue #5):
-- `claude.sh` — Claude Code headless (`claude -p`, `--output-format json`, read-only tools); requires `ANTHROPIC_API_KEY` secret
+- `claude.sh` — Claude Code headless (`claude -p`, `--output-format json`, read-only tools); requires `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` secret (see `.env.example`)
 - `openai-compat.sh` — any OpenAI-compatible endpoint via `curl` + `jq`; endpoint/model from `SWARM_LLM_BASE_URL` / `SWARM_LLM_MODEL`; CI-skips with a loud stderr warning when `SWARM_LLM_BASE_URL` is unset
 
 See `schemas/runner-contract.md` for the full env-variable contract and local smoke-test commands.
