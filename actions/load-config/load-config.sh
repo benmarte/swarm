@@ -14,17 +14,29 @@
 # On invalid config: prints ajv errors to stderr and exits 1.
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "${GITHUB_WORKSPACE:-}")"
-CONFIG_FILE="${CONFIG_FILE:-swarm.config.yml}"
+# ACTION_PATH must be set — it is injected by the composite action step env.
+# Fail loudly rather than silently falling back to a wrong path.
+if [ -z "${ACTION_PATH:-}" ]; then
+  echo "load-config: ERROR: ACTION_PATH is not set." >&2
+  echo "  This script must be invoked via the load-config composite action," >&2
+  echo "  which sets ACTION_PATH to \${{ github.action_path }}." >&2
+  exit 1
+fi
 
-# Resolve config path: if it's absolute use as-is; otherwise relative to workspace/repo root
+# SCHEMA_PATH is an engine asset — resolve via ACTION_PATH so it works in
+# consumer repos where schemas/ is not present in GITHUB_WORKSPACE.
+SCHEMA_PATH="${ACTION_PATH}/../../schemas/config.schema.json"
+
+# CONFIG_PATH is a consumer asset — stays workspace-relative.
+CONFIG_FILE="${CONFIG_FILE:-swarm.config.yml}"
+_workspace="${GITHUB_WORKSPACE:-$(git rev-parse --show-toplevel 2>/dev/null || printf '.')}"
+
+# Resolve config path: if it's absolute use as-is; otherwise relative to workspace
 if printf '%s' "$CONFIG_FILE" | grep -q '^/'; then
   CONFIG_PATH="$CONFIG_FILE"
 else
-  CONFIG_PATH="${GITHUB_WORKSPACE:-$REPO_ROOT}/$CONFIG_FILE"
+  CONFIG_PATH="${_workspace}/$CONFIG_FILE"
 fi
-
-SCHEMA_PATH="$REPO_ROOT/schemas/config.schema.json"
 
 # ── Existence checks ───────────────────────────────────────────────────────────
 if [ ! -f "$CONFIG_PATH" ]; then
