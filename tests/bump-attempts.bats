@@ -14,6 +14,7 @@ setup() {
   export MAINTAINER="benmarte"
   export POST_COMMENT="false"
   export RUNNER_TEMP="$(mktemp -d)"
+  unset SWARM_TOKEN
   # Prepend stubs dir so our fake gh is found first
   export PATH="$STUBS_DIR:$PATH"
 }
@@ -243,4 +244,41 @@ teardown() {
 
   run bash "$BUMP_SH"
   [ "$status" -ne 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# SWARM_TOKEN token selection (#40)
+# ---------------------------------------------------------------------------
+
+@test "token selection: uses SWARM_TOKEN when set (no fallback warning)" {
+  export GH_STUB_LABELS_JSON='[]'
+  export SWARM_TOKEN="pat-secret-value"
+
+  run bash "$BUMP_SH"
+  [ "$status" -eq 0 ]
+
+  # Fallback warning must NOT appear when SWARM_TOKEN is provided
+  [[ "$output" != *"WARNING: SWARM_TOKEN not set"* ]]
+}
+
+@test "token selection: emits loud warning when SWARM_TOKEN absent" {
+  export GH_STUB_LABELS_JSON='[]'
+  unset SWARM_TOKEN
+
+  run bash "$BUMP_SH"
+  [ "$status" -eq 0 ]
+
+  # Warning lines must appear (bats captures stderr in output)
+  [[ "$output" == *"WARNING: SWARM_TOKEN not set"* ]]
+}
+
+@test "token selection: succeeds with GH_TOKEN fallback when SWARM_TOKEN absent" {
+  export GH_STUB_LABELS_JSON='[]'
+  unset SWARM_TOKEN
+
+  run bash "$BUMP_SH"
+  [ "$status" -eq 0 ]
+
+  # Label write still executes via GH_TOKEN fallback
+  grep -q "labels\[\]=swarm:attempts:1" "$GH_STUB_LOG"
 }

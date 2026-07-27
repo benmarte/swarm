@@ -101,6 +101,13 @@ on:
         type: string
         default: v1
     secrets:
+      SWARM_TOKEN:
+        description: >
+          Fine-grained PAT with issues:write scope for a distinct actor.
+          Declared for consistency across all 7 swarm reusable workflows.
+          The sweeper escalates via gh issue edit (GITHUB_TOKEN is sufficient
+          for swarm:needs-human writes which do not need cascade triggering).
+        required: false
       SWARM_LLM_API_KEY:
         description: >
           Bearer token for the OpenAI-compatible LLM endpoint.

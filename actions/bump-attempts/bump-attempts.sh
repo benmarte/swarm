@@ -5,12 +5,28 @@
 # Required env:
 #   ISSUE_NUMBER       — GitHub issue number (integer)
 #   MAINTAINER         — GitHub username to assign at escalation
-#   GH_TOKEN           — GitHub token with issues:write scope
+#   GH_TOKEN           — GitHub token with issues:write scope (fallback)
 #   GITHUB_REPOSITORY  — owner/repo
 #
 # Optional env:
+#   SWARM_TOKEN        — fine-grained PAT (preferred over GH_TOKEN so that
+#                        label writes are authored by a distinct actor.
+#                        When absent, GH_TOKEN is used with a warning.)
 #   POST_COMMENT       — "true" (default) or "false"
 set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Token selection: prefer SWARM_TOKEN (PAT) for a distinct actor on label
+# writes and escalation. Fall back to GH_TOKEN (GITHUB_TOKEN) with a warning.
+# ---------------------------------------------------------------------------
+if [ -n "${SWARM_TOKEN:-}" ]; then
+  GH_TOKEN="$SWARM_TOKEN"
+else
+  echo "bump-attempts: WARNING: SWARM_TOKEN not set — falling back to GITHUB_TOKEN." >&2
+  echo "bump-attempts: WARNING: Stage cascade will NOT trigger the next workflow without a PAT." >&2
+  echo "bump-attempts: WARNING: See docs/adopting.md#swarm-token for required scopes." >&2
+fi
+export GH_TOKEN
 
 # ---------------------------------------------------------------------------
 # Attempts config

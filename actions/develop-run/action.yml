@@ -74,6 +74,14 @@ inputs:
       swarm:needs-human (at the attempt limit).
     required: false
     default: ""
+  token:
+    description: >
+      GitHub PAT (SWARM_TOKEN) forwarded to transition.sh and bump-attempts.sh
+      so that label writes are authored by a distinct actor and trigger
+      the next stage workflow cascade.  When absent those scripts fall back
+      to GH_TOKEN and emit a warning.
+    required: false
+    default: ""
 
 outputs:
   pr-url:
@@ -96,6 +104,7 @@ runs:
         ADAPTER_CMD: ${{ inputs.adapter-cmd }}
         MODEL: ${{ inputs.model }}
         MAINTAINER: ${{ inputs.maintainer }}
+        SWARM_TOKEN: ${{ inputs.token }}
         GH_TOKEN: ${{ env.GH_TOKEN }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         ACTION_PATH: ${{ github.action_path }}

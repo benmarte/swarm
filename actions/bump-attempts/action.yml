@@ -28,6 +28,14 @@ inputs:
     description: Set to 'false' to suppress the escalation comment.
     required: false
     default: 'true'
+  token:
+    description: >
+      GitHub PAT (SWARM_TOKEN) used for label writes, assignment, and comments.
+      Passed as SWARM_TOKEN to bump-attempts.sh which prefers it over GH_TOKEN
+      so that swarm:needs-human escalation is authored by a distinct actor.
+      When absent the action falls back to GH_TOKEN and emits a warning.
+    required: false
+    default: ''
 
 outputs:
   needs-human:
@@ -51,6 +59,7 @@ runs:
         ISSUE_NUMBER: ${{ inputs.issue-number }}
         MAINTAINER: ${{ inputs.maintainer }}
         POST_COMMENT: ${{ inputs.post-comment }}
+        SWARM_TOKEN: ${{ inputs.token }}
         GH_TOKEN: ${{ env.GH_TOKEN }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         ACTION_PATH: ${{ github.action_path }}

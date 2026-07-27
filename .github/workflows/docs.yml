@@ -81,6 +81,13 @@ on:
         type: string
         default: v1
     secrets:
+      SWARM_TOKEN:
+        description: >
+          Fine-grained PAT with issues:write scope for a distinct actor.
+          Required for the swarm:docs → swarm:done transition so that the
+          label write is authored by a distinct actor. When absent falls back
+          to GITHUB_TOKEN with a loud warning.
+        required: false
       SWARM_LLM_API_KEY:
         description: >
           Bearer token for the OpenAI-compatible LLM endpoint.
@@ -250,6 +257,7 @@ jobs:
           issue-number: ${{ inputs.issue }}
           from-stage: swarm:docs
           to-stage: swarm:done
+          token: ${{ secrets.SWARM_TOKEN }}
 
       - name: Dry-run log (transition)
         if: inputs.dry-run == true

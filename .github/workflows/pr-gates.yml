@@ -91,8 +91,10 @@ on:
     secrets:
       SWARM_TOKEN:
         description: >
-          Fine-grained PAT with pull-requests:write scope for a distinct actor.
-          Required when dry-run is false for the reviewer job to post a real PR review.
+          Fine-grained PAT with pull-requests:write and issues:write scope for a
+          distinct actor. Required when dry-run is false for the reviewer job to
+          post a real PR review. The issues:write scope is needed for stage-label
+          cascade transitions in other workflows that share this secret.
         required: false
       SWARM_LLM_API_KEY:
         description: >

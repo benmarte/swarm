@@ -34,6 +34,17 @@ inputs:
     description: Set to 'false' to suppress the transition comment.
     required: false
     default: 'true'
+  token:
+    description: >
+      GitHub PAT (SWARM_TOKEN) used for label writes and comments.
+      Must be a fine-grained PAT with issues:write scope so that the
+      resulting label event is authored by a different actor and
+      triggers the next stage workflow (GitHub suppresses workflow
+      triggers for events caused by GITHUB_TOKEN).
+      When absent the action falls back to GH_TOKEN from the job env
+      and emits a loud warning: stage cascading will stop.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -45,6 +56,7 @@ runs:
         FROM_STAGE: ${{ inputs.from-stage }}
         TO_STAGE: ${{ inputs.to-stage }}
         POST_COMMENT: ${{ inputs.post-comment }}
+        SWARM_TOKEN: ${{ inputs.token }}
         GH_TOKEN: ${{ env.GH_TOKEN }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         ACTION_PATH: ${{ github.action_path }}
