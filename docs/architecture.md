@@ -111,7 +111,9 @@ Validates an event JSON against `schemas/event.schema.json`, then dispatches to 
 
 ### `load-config` — config validation and export
 
-Reads `swarm.config.yml` from the consumer repo, validates it against `schemas/config.schema.json`, and exports pipeline config values as step outputs. Wired as the first step of `intake.yml`.
+Reads `swarm.config.yml` from the consumer repo, validates it against `schemas/config.schema.json`, converts the YAML to a temporary JSON file, and exports pipeline config values as step outputs. Wired as the first step of `intake.yml`.
+
+**YAML→JSON conversion (fix #36):** `jq` cannot parse YAML directly. After schema validation, `load-config` converts the config once to a temp file (`trap` cleans it on exit). Converter priority: `python3 + PyYAML` (primary) → `node + js-yaml` (fallback) → exit 1. Self-hosted runner prerequisite: `python3` with `PyYAML` on `$PATH` (pre-installed on GitHub-hosted `ubuntu-*`; macOS: `brew install python3 && pip3 install pyyaml`).
 
 ---
 

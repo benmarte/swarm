@@ -114,6 +114,75 @@ get_output() {
 }
 
 # ---------------------------------------------------------------------------
+# Real-YAML fixture: not JSON-compatible — regression for issue #36
+# (leading comments, unquoted strings, YAML boolean, em-dash in comment)
+# ---------------------------------------------------------------------------
+
+@test "real-YAML config passes validation and extraction" {
+  export CONFIG_FILE="$FIXTURES/valid-real-yaml.yml"
+  run bash "$LOAD_CONFIG_SH"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"validation passed"* ]]
+}
+
+@test "real-YAML config extracts runner-label" {
+  export CONFIG_FILE="$FIXTURES/valid-real-yaml.yml"
+  run bash "$LOAD_CONFIG_SH"
+  [ "$status" -eq 0 ]
+  runner_label="$(get_output runner-label)"
+  [ "$runner_label" = "swarm-agent" ]
+}
+
+@test "real-YAML config extracts notify-slack" {
+  export CONFIG_FILE="$FIXTURES/valid-real-yaml.yml"
+  run bash "$LOAD_CONFIG_SH"
+  [ "$status" -eq 0 ]
+  notify_slack="$(get_output notify-slack)"
+  [ "$notify_slack" = "true" ]
+}
+
+@test "real-YAML config extracts notify-discord" {
+  export CONFIG_FILE="$FIXTURES/valid-real-yaml.yml"
+  run bash "$LOAD_CONFIG_SH"
+  [ "$status" -eq 0 ]
+  notify_discord="$(get_output notify-discord)"
+  [ "$notify_discord" = "false" ]
+}
+
+@test "real-YAML config extracts notify-buzz-channel" {
+  export CONFIG_FILE="$FIXTURES/valid-real-yaml.yml"
+  run bash "$LOAD_CONFIG_SH"
+  [ "$status" -eq 0 ]
+  buzz_channel="$(get_output notify-buzz-channel)"
+  [ "$buzz_channel" = "abc123-channel-uuid" ]
+}
+
+@test "real-YAML config extracts develop-adapter" {
+  export CONFIG_FILE="$FIXTURES/valid-real-yaml.yml"
+  run bash "$LOAD_CONFIG_SH"
+  [ "$status" -eq 0 ]
+  develop_adapter="$(get_output develop-adapter)"
+  [ "$develop_adapter" = "claude-code-action" ]
+}
+
+@test "real-YAML config extracts sweeper-schedule" {
+  export CONFIG_FILE="$FIXTURES/valid-real-yaml.yml"
+  run bash "$LOAD_CONFIG_SH"
+  [ "$status" -eq 0 ]
+  sweeper_schedule="$(get_output sweeper-schedule)"
+  [ "$sweeper_schedule" = "0 2 * * *" ]
+}
+
+@test "missing YAML converter: script contains loud error message (structural)" {
+  # PATH-stripping both python3 and node is impractical (ajv is also node-based
+  # and must remain working for the validation step that runs first).
+  # Assert that the required error message text is present in the script source —
+  # the execution path is covered by integration; this guards the message content.
+  grep -q "python3 with PyYAML" "$LOAD_CONFIG_SH"
+  grep -q "no YAML-to-JSON converter" "$LOAD_CONFIG_SH"
+}
+
+# ---------------------------------------------------------------------------
 # Invalid config: secret key present → schema "not" block rejects it
 # ---------------------------------------------------------------------------
 
