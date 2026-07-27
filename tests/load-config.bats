@@ -9,6 +9,9 @@ FIXTURES="$REPO_ROOT/tests/fixtures/config"
 
 setup() {
   export GITHUB_WORKSPACE="$REPO_ROOT"
+  # ACTION_PATH points to the composite action directory so the schema is
+  # resolved via ACTION_PATH/../../schemas/config.schema.json.
+  export ACTION_PATH="$REPO_ROOT/actions/load-config"
   # Use a temp file for GITHUB_OUTPUT so we can read exported outputs
   GITHUB_OUTPUT="$(mktemp)"
   export GITHUB_OUTPUT
@@ -175,4 +178,80 @@ get_output() {
   [ "$status" -ne 0 ]
   # Error output should reference the failing validation
   [[ "$output" == *"FAILED"* ]] || [[ "${lines[*]}" == *"error"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# ACTION_PATH required — fail loudly when missing
+# ---------------------------------------------------------------------------
+
+@test "missing ACTION_PATH exits with clear error" {
+  tmp_out="$(mktemp)"
+  run env -i \
+    GITHUB_WORKSPACE="$REPO_ROOT" \
+    CONFIG_FILE="$FIXTURES/valid-minimal.yml" \
+    GITHUB_OUTPUT="$tmp_out" \
+    HOME="${HOME:-/root}" \
+    PATH="$PATH" \
+    bash "$LOAD_CONFIG_SH"
+  rm -f "$tmp_out"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ACTION_PATH"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Regression: action dir outside workspace — schema must resolve via ACTION_PATH
+# ---------------------------------------------------------------------------
+
+@test "regression: action outside workspace succeeds (ACTION_PATH-relative schema)" {
+  # Simulate a consumer repo: workspace has config but NO schemas/.
+  # Engine dir (ACTION_PATH) lives outside the workspace.
+  local engine_root workspace_dir tmp_out action_path
+  engine_root="$(mktemp -d)"
+  workspace_dir="$(mktemp -d)"
+  tmp_out="$(mktemp)"
+
+  # Lay out: engine_root/actions/load-config/ (ACTION_PATH)
+  #          engine_root/schemas/              (ACTION_PATH/../../schemas)
+  action_path="$engine_root/actions/load-config"
+  mkdir -p "$action_path"
+  mkdir -p "$engine_root/schemas"
+
+  cp "$LOAD_CONFIG_SH" "$action_path/load-config.sh"
+  cp "$SCHEMA" "$engine_root/schemas/config.schema.json"
+
+  # Consumer workspace — has config but no schemas/ directory
+  cp "$FIXTURES/valid-minimal.yml" "$workspace_dir/swarm.config.yml"
+
+  run env \
+    GITHUB_WORKSPACE="$workspace_dir" \
+    ACTION_PATH="$action_path" \
+    CONFIG_FILE="swarm.config.yml" \
+    GITHUB_OUTPUT="$tmp_out" \
+    bash "$action_path/load-config.sh"
+
+  rm -rf "$engine_root" "$workspace_dir"
+  rm -f "$tmp_out"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"validation passed"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Structural: no engine-asset paths built from GITHUB_WORKSPACE in actions/
+# ---------------------------------------------------------------------------
+
+@test "structural: no GITHUB_WORKSPACE-relative engine-asset reads in actions/" {
+  # schemas/, prompts/ are engine assets — must never be accessed via
+  # GITHUB_WORKSPACE. Runtime output files (outcome.json, GITHUB_OUTPUT)
+  # are allowed to remain workspace-relative.
+  local violations
+  violations="$(grep -rn 'GITHUB_WORKSPACE[^)]*schemas/\|GITHUB_WORKSPACE[^)]*prompts/' \
+    "$REPO_ROOT/actions/" --include='*.sh' \
+    | grep -v '^[[:space:]]*#' \
+    | grep -v 'GITHUB_WORKSPACE.*://' \
+    || true)"
+  if [ -n "$violations" ]; then
+    echo "Engine-asset reads via GITHUB_WORKSPACE found:" >&2
+    echo "$violations" >&2
+  fi
+  [ -z "$violations" ]
 }

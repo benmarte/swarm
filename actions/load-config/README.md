@@ -1,6 +1,6 @@
 # actions/load-config/
 
-Composite action — reads `swarm.config.yml` from the workspace, validates it against `schemas/config.schema.json` using `ajv-cli@5.0.0`, and exports each top-level config value as a step output.
+Composite action — reads `swarm.config.yml` from the workspace, validates it against `schemas/config.schema.json` (resolved engine-relative via `ACTION_PATH`, not workspace-relative) using `ajv-cli@5.0.0`, and exports each top-level config value as a step output.
 
 If validation fails the job fails immediately with the ajv error printed to stderr. Invalid config is never silently ignored.
 
