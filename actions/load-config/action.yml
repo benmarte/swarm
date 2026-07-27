@@ -1,0 +1,57 @@
+name: Load and Validate Config
+description: >
+  Reads swarm.config.yml from the workspace, validates it against
+  schemas/config.schema.json using ajv-cli@5.0.0, and exports each
+  top-level config value as a step output. Invalid config fails loudly.
+
+# permissions required on the calling workflow job:
+#   contents: read   — to read the config file from the workspace
+
+inputs:
+  config-file:
+    description: Path to swarm.config.yml (relative to GITHUB_WORKSPACE).
+    required: false
+    default: swarm.config.yml
+
+outputs:
+  notify-slack:
+    description: Whether Slack notifications are enabled (true/false).
+    value: ${{ steps.load.outputs.notify-slack }}
+  notify-discord:
+    description: Whether Discord notifications are enabled (true/false).
+    value: ${{ steps.load.outputs.notify-discord }}
+  notify-teams:
+    description: Whether Teams notifications are enabled (true/false).
+    value: ${{ steps.load.outputs.notify-teams }}
+  notify-buzz-channel:
+    description: Nostr/NIP-29 channel UUID for buzz notifications.
+    value: ${{ steps.load.outputs.notify-buzz-channel }}
+  runner-label:
+    description: GitHub Actions runner label for agent jobs.
+    value: ${{ steps.load.outputs.runner-label }}
+  develop-adapter:
+    description: Develop-stage adapter (claude-code-action or headless).
+    value: ${{ steps.load.outputs.develop-adapter }}
+  sweeper-schedule:
+    description: Cron schedule expression for the sweeper.
+    value: ${{ steps.load.outputs.sweeper-schedule }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install ajv-cli
+      shell: bash
+      run: |
+        if ! command -v ajv >/dev/null 2>&1; then
+          npm install -g ajv-cli@5.0.0 --silent
+        fi
+
+    - name: Load and validate config
+      id: load
+      shell: bash
+      env:
+        CONFIG_FILE: ${{ inputs.config-file }}
+        ACTION_PATH: ${{ github.action_path }}
+        GITHUB_WORKSPACE: ${{ github.workspace }}
+      run: |
+        bash "$ACTION_PATH/load-config.sh"

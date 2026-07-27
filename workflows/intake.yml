@@ -76,12 +76,19 @@ jobs:
       issues: read
     outputs:
       verdict: ${{ steps.read-outcome.outputs.verdict }}
+      runner-label: ${{ steps.config.outputs.runner-label }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       SWARM_LLM_MODEL: ${{ inputs.model }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Load and validate config
+        id: config
+        uses: ./actions/load-config
+        with:
+          config-file: swarm.config.yml
 
       - name: Fetch issue context
         id: ctx
