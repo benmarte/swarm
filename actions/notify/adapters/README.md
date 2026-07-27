@@ -8,10 +8,8 @@ Required interface:
 - Reads: `EVENT_JSON` (canonical event per `schemas/event.schema.json`), platform-specific credential env vars from GitHub Secrets
 - Exits 0 on success; non-zero on delivery failure (logged but does not fail the pipeline job)
 
-Planned adapters (issues #2+):
+Implemented adapters (shipped in issue #4):
 - `slack.sh` — `SWARM_SLACK_WEBHOOK` → POST `{"text": "..."}` to Slack Incoming Webhook
 - `buzz.sh` — `SWARM_BUZZ_RELAY_URL` + `SWARM_BUZZ_PRIVATE_KEY` + `SWARM_BUZZ_CHANNEL` → `nak` CLI publishes signed `kind:9` NIP-29 event
 - `discord.sh` — `SWARM_DISCORD_WEBHOOK` → POST to Discord webhook
 - `teams.sh` — `SWARM_TEAMS_WEBHOOK` → POST Adaptive Card to Teams webhook
-
-**Not yet implemented** — scaffold placeholder for issue #1.
