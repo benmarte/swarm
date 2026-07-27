@@ -15,7 +15,7 @@ For both adapters the engine owns all GitHub state mutations:
 - `gh pr create` with `Closes #N`, adapter name, and model in the body (uses `SWARM_TOKEN` when set; falls back to `GH_TOKEN` with a loud warning — see token selection below)
 - `gh api` PR verification (same token as `gh pr create`)
 - `swarm:develop → swarm:qa` label transition on success
-- `bump-attempts` call on failure (no diff or PR verify failure)
+- `bump-attempts` call on genuine failure (nothing staged **and** branch not ahead of base, or PR verify failure); a clean-but-ahead branch — nothing staged but commits ahead of base from a prior interrupted run — skips the bump and resumes directly to PR creation
 
 The adapter only edits the working tree. It must not push, create PRs, or mutate labels.
 
