@@ -191,7 +191,22 @@ fi
 # Exclude engine checkout from consumer commit — .swarm-engine/ is engine-only.
 git add -A -- ':!.swarm-engine'
 
-if git diff --cached --quiet; then
+# Determine dirty state (staged changes present) and ahead state (commits not
+# yet on origin/BASE_BRANCH, e.g. a prior run pushed implementation but died
+# before PR creation).
+_is_dirty=false
+if ! git diff --cached --quiet; then
+  _is_dirty=true
+fi
+
+_ahead_count="$(git rev-list --count "origin/${BASE_BRANCH}..HEAD" 2>/dev/null || echo 0)"
+_is_ahead=false
+if [ "$_ahead_count" -gt 0 ]; then
+  _is_ahead=true
+fi
+
+# Genuine no-work: nothing staged AND branch is not ahead of base.
+if [ "$_is_dirty" = "false" ] && [ "$_is_ahead" = "false" ]; then
   echo "develop-run: ERROR: adapter produced no changes in the working tree" >&2
   echo "develop-run: bumping attempts (no-diff failure)" >&2
   export GITHUB_REPOSITORY
@@ -204,11 +219,16 @@ if git diff --cached --quiet; then
   exit 1
 fi
 
-echo "develop-run: diff detected — committing"
+# Clean-but-ahead: prior run committed implementation; skip commit, push is safe (idempotent).
+if [ "$_is_dirty" = "false" ] && [ "$_is_ahead" = "true" ]; then
+  echo "develop-run: resuming existing implementation — proceeding to PR"
+else
+  echo "develop-run: diff detected — committing"
 
-# -- commit ----------------------------------------------------------------
-model_tag="${MODEL:+ model=$MODEL}"
-git commit -m "feat: implement issue #$ISSUE_NUMBER [adapter=$ADAPTER${model_tag}]"
+  # -- commit --------------------------------------------------------------
+  model_tag="${MODEL:+ model=$MODEL}"
+  git commit -m "feat: implement issue #$ISSUE_NUMBER [adapter=$ADAPTER${model_tag}]"
+fi
 
 # -- push ------------------------------------------------------------------
 echo "develop-run: pushing branch $BRANCH_NAME"
