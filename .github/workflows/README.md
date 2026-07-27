@@ -391,3 +391,18 @@ jobs:
 - All third-party actions pinned to full SHAs (supply-chain rule; SPEC §4).
 - `${{ }}` expressions are used only in `with:`, `env:`, `if:`, and `concurrency:`; never inside `run:` blocks (untrusted input guard).
 - Agent jobs run on `${{ inputs.runner-label }}`; all glue/routing jobs run on `ubuntu-latest`.
+
+## Runner prerequisites
+
+Self-hosted runners (`swarm-agent`) must have the following tools on `$PATH`:
+
+| Tool | Required for | Install |
+|------|-------------|---------|
+| `python3` + PyYAML | `load-config` YAML→JSON conversion (primary converter) | Pre-installed on `ubuntu-*` GH runners. macOS: `brew install python3 && pip3 install pyyaml` |
+| `node` + `js-yaml` | `load-config` YAML→JSON conversion (fallback) | `npm install -g js-yaml` |
+| `jq` | Config field extraction (all workflows) | `brew install jq` / `apt-get install jq` |
+| `gh` | GitHub API mutations (all workflows) | Pre-installed on GH runners; see [cli.github.com](https://cli.github.com) |
+| `claude` | `claude` adapter for agent jobs | `npm install -g @anthropic-ai/claude-code` |
+| `nak` | Buzz/Nostr notify sink | `brew install nak` (macOS); see [github.com/fiatjaf/nak](https://github.com/fiatjaf/nak) |
+
+> **PyYAML note:** `swarm.config.yml` is a real YAML file. `jq` cannot parse YAML directly, so `load-config` converts the file to JSON once (via python3+PyYAML, or node+js-yaml as fallback) before any field extraction. If neither converter is found, the action exits 1 with a clear error naming the missing prerequisite.

@@ -74,6 +74,29 @@ fi
 
 echo "load-config: validation passed"
 
+# ── Convert YAML → JSON (one-shot, before any jq extraction) ──────────────────
+# jq cannot parse YAML directly; convert once to a temp file and clean up on exit.
+_config_json="$(mktemp)"
+trap 'rm -f "$_config_json"' EXIT
+
+if command -v python3 >/dev/null 2>&1 && python3 -c "import yaml" 2>/dev/null; then
+  python3 -c 'import yaml,json,sys; json.dump(yaml.safe_load(open(sys.argv[1])), sys.stdout)' \
+    "$CONFIG_PATH" > "$_config_json"
+elif NODE_PATH="$(npm root -g 2>/dev/null)" node \
+       -e "require('js-yaml')" 2>/dev/null; then
+  NODE_PATH="$(npm root -g 2>/dev/null)" node \
+    -e "const fs=require('fs'); const yaml=require('js-yaml'); \
+        process.stdout.write(JSON.stringify(yaml.load(fs.readFileSync(process.argv[1],'utf8'))));" \
+    "$CONFIG_PATH" > "$_config_json"
+else
+  echo "load-config: ERROR: no YAML-to-JSON converter found." >&2
+  echo "  Required: python3 with PyYAML ('pip3 install pyyaml')." >&2
+  echo "  Fallback: node with js-yaml ('npm install -g js-yaml')." >&2
+  echo "  On GitHub-hosted ubuntu runners, python3 + PyYAML is pre-installed." >&2
+  echo "  On self-hosted macOS runners: 'brew install python3 && pip3 install pyyaml'." >&2
+  exit 1
+fi
+
 # ── Extract and export values ──────────────────────────────────────────────────
 # Use random delimiters for all outputs (required for any potentially-multiline value).
 
@@ -92,14 +115,17 @@ export_output() {
   } >> "${GITHUB_OUTPUT:-/dev/stdout}"
 }
 
-# Parse config values via jq. Use 'null' as the empty sentinel.
-notify_slack="$(jq -r '.notify.slack // ""' "$CONFIG_PATH")"
-notify_discord="$(jq -r '.notify.discord // ""' "$CONFIG_PATH")"
-notify_teams="$(jq -r '.notify.teams // ""' "$CONFIG_PATH")"
-notify_buzz_channel="$(jq -r '.notify.buzz_channel // ""' "$CONFIG_PATH")"
-runner_label="$(jq -r '.runner.label // ""' "$CONFIG_PATH")"
-develop_adapter="$(jq -r '.develop.adapter // ""' "$CONFIG_PATH")"
-sweeper_schedule="$(jq -r '.sweeper.schedule // ""' "$CONFIG_PATH")"
+# Parse config values via jq from the converted JSON temp file.
+# Use `| if . == null then "" else tostring end` instead of `// ""`
+# because jq's // operator returns the fallback for both null AND false,
+# causing YAML boolean `false` values to be silently dropped.
+notify_slack="$(jq -r '.notify.slack | if . == null then "" else tostring end' "$_config_json")"
+notify_discord="$(jq -r '.notify.discord | if . == null then "" else tostring end' "$_config_json")"
+notify_teams="$(jq -r '.notify.teams | if . == null then "" else tostring end' "$_config_json")"
+notify_buzz_channel="$(jq -r '.notify.buzz_channel | if . == null then "" else tostring end' "$_config_json")"
+runner_label="$(jq -r '.runner.label | if . == null then "" else tostring end' "$_config_json")"
+develop_adapter="$(jq -r '.develop.adapter | if . == null then "" else tostring end' "$_config_json")"
+sweeper_schedule="$(jq -r '.sweeper.schedule | if . == null then "" else tostring end' "$_config_json")"
 
 export_output "notify-slack"       "$notify_slack"
 export_output "notify-discord"     "$notify_discord"

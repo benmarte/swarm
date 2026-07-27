@@ -16,6 +16,7 @@ Before starting, confirm you have:
   - `gh` CLI on `$PATH` and authenticated.
   - `jq` on `$PATH`.
   - `nak` on `$PATH` (if using buzz notify).
+  - `python3` with **PyYAML** on `$PATH` — required to convert `swarm.config.yml` (YAML) to JSON for field extraction. Pre-installed on all GitHub-hosted `ubuntu-*` runners. On self-hosted macOS runners: `brew install python3 && pip3 install pyyaml`. Fallback: `npm install -g js-yaml` (node + js-yaml is tried when python3+PyYAML is absent).
   - `ajv-cli@5.0.0` is installed in-job by the composite actions; it does not need to be pre-installed.
 
 ---

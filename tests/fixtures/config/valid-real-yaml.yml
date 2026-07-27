@@ -1,0 +1,18 @@
+# swarm.config.yml — real YAML (NOT JSON-compatible)
+# Shapes that break jq-on-YAML: unquoted strings, boolean literals,
+# YAML comments, and em-dash in a comment value — e.g. schedule: 0 2 * * *
+
+notify:
+  # Slack — enabled on this deployment
+  slack: true
+  discord: false
+  buzz_channel: abc123-channel-uuid
+
+develop:
+  adapter: claude-code-action
+
+runner:
+  label: swarm-agent
+
+sweeper:
+  schedule: "0 2 * * *"
