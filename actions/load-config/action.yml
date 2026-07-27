@@ -35,6 +35,9 @@ outputs:
   sweeper-schedule:
     description: Cron schedule expression for the sweeper.
     value: ${{ steps.load.outputs.sweeper-schedule }}
+  swarm-llm-base-url:
+    description: Base URL for OpenAI-compatible LLM endpoint (empty when not configured).
+    value: ${{ steps.load.outputs.swarm-llm-base-url }}
 
 runs:
   using: composite

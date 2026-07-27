@@ -49,14 +49,15 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# CI skip gate: if running in CI with no endpoint configured, skip with a
-# loud warning. This is the ONLY place skipping is allowed, and it must log.
+# Test-only skip gate: when SWARM_TEST_SKIP_LLM=1 and no endpoint is set,
+# skip with a loud warning. This escape hatch is ONLY for the bats test suite.
+# Runtime jobs (GitHub Actions, CI) must always have SWARM_LLM_BASE_URL set.
 # ---------------------------------------------------------------------------
-if [ -z "${SWARM_LLM_BASE_URL:-}" ] && [ -n "${CI:-}" ]; then
+if [ -z "${SWARM_LLM_BASE_URL:-}" ] && [ -n "${SWARM_TEST_SKIP_LLM:-}" ]; then
   echo "openai-compat adapter: WARNING: SWARM_LLM_BASE_URL is not set." >&2
-  echo "  Skipping openai-compat test in CI — no local endpoint available." >&2
-  echo "  To run against a real endpoint, set SWARM_LLM_BASE_URL in your" >&2
-  echo "  repository variables or environment." >&2
+  echo "  Skipping openai-compat call — SWARM_TEST_SKIP_LLM is set (test-only escape hatch)." >&2
+  echo "  This skip is only valid in the bats test suite." >&2
+  echo "  Runtime jobs must set SWARM_LLM_BASE_URL via swarm.config.yml + load-config output." >&2
   exit 0
 fi
 
@@ -65,7 +66,9 @@ fi
 # ---------------------------------------------------------------------------
 if [ -z "${SWARM_LLM_BASE_URL:-}" ]; then
   echo "openai-compat adapter: ERROR: SWARM_LLM_BASE_URL is not set." >&2
-  echo "  Set it as a repository variable (e.g. http://localhost:11434/v1)." >&2
+  echo "  Set SWARM_LLM_BASE_URL in swarm.config.yml (e.g. http://localhost:11434/v1)" >&2
+  echo "  and confirm the load-config action exports it to the agent-run step env." >&2
+  echo "  The load-config action exposes it as the 'swarm-llm-base-url' step output." >&2
   exit 1
 fi
 
