@@ -12,12 +12,16 @@ For both adapters the engine owns all GitHub state mutations:
 - writing `docs/specs/issue-N.md` and committing it
 - invoking the adapter (pure working-tree edit)
 - detecting the diff, committing adapter changes, pushing
-- `gh pr create` with `Closes #N`, adapter name, and model in the body
-- `gh api` PR verification
+- `gh pr create` with `Closes #N`, adapter name, and model in the body (uses `SWARM_TOKEN` when set; falls back to `GH_TOKEN` with a loud warning — see token selection below)
+- `gh api` PR verification (same token as `gh pr create`)
 - `swarm:develop → swarm:qa` label transition on success
 - `bump-attempts` call on failure (no diff or PR verify failure)
 
 The adapter only edits the working tree. It must not push, create PRs, or mutate labels.
+
+## Token selection for PR operations
+
+`gh pr create` and the `gh api` PR-verify call use `SWARM_TOKEN` when set (env-prefix per call — no global reassignment, so `git push` keeps its checkout credentials). When `SWARM_TOKEN` is absent, the engine falls back to `GH_TOKEN` and emits a loud warning naming both failure modes: the repository policy that blocks Actions from creating PRs, and the `pull_request` workflow suppression (PRs opened by `GITHUB_TOKEN` do not trigger `pull_request` events, which would stall `pr-gates`).
 
 ## V1 adapters (see `adapters/`)
 
