@@ -228,9 +228,7 @@ jobs:
     with:
       pr: ${{ github.event.number }}
       issue: ${{ github.event.pull_request.number }}   # replace with actual issue extraction
-    secrets:
-      SWARM_TOKEN: ${{ secrets.SWARM_TOKEN }}
-    secrets: inherit
+    secrets: inherit   # passes SWARM_TOKEN (and all other secrets) through to pr-gates
 
   # ── fix: re-invoked when a required check fails on a swarm PR ─────────────
   fix:

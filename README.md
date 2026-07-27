@@ -20,7 +20,7 @@ cp .env.example .env
 $EDITOR .env
 
 # 2. Provision the consumer repo (idempotent — safe to re-run).
-bash scripts/bootstrap.sh --env-file .env --repo owner/repo --reviewer @yourgithubhandle
+bash scripts/bootstrap.sh --env-file .env --repo owner/repo --reviewer yourgithubhandle
 ```
 
 `bootstrap.sh` creates all `swarm:*` and `pipeline:*` labels, the `swarm-approval` environment with a required human reviewer, seeds GitHub Secrets via `gh secret set` (values are never passed through argv or logged), writes a starter `swarm.config.yml`, and prints the caller-workflow snippet. Run it again after rotating any key.
