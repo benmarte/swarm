@@ -222,6 +222,7 @@ jobs:
           repository: ${{ inputs.engine-repo || 'benmarte/swarm' }}
           ref: ${{ inputs.engine-ref || 'v1' }}
           path: .swarm-engine
+          persist-credentials: false
 
       - name: Run orchestrator agent
         uses: ./.swarm-engine/actions/agent-run
@@ -276,6 +277,7 @@ jobs:
           repository: ${{ inputs.engine-repo || 'benmarte/swarm' }}
           ref: ${{ inputs.engine-ref || 'v1' }}
           path: .swarm-engine
+          persist-credentials: false
 
       - name: Download outcome artifact
         uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1

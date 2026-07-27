@@ -128,6 +128,7 @@ jobs:
           repository: ${{ inputs.engine-repo }}
           ref: ${{ inputs.engine-ref }}
           path: .swarm-engine
+          persist-credentials: false
 
       - name: Fetch issue + spec context
         id: ctx

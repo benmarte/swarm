@@ -103,6 +103,7 @@ jobs:
           repository: ${{ inputs.engine-repo }}
           ref: ${{ inputs.engine-ref }}
           path: .swarm-engine
+          persist-credentials: false
 
       - name: Load and validate config
         id: config
@@ -166,6 +167,7 @@ jobs:
           repository: ${{ inputs.engine-repo }}
           ref: ${{ inputs.engine-ref }}
           path: .swarm-engine
+          persist-credentials: false
 
       # ── confirmed: advance to swarm:spec ──────────────────────────────────
       - name: Transition confirmed → swarm:spec

@@ -138,6 +138,7 @@ jobs:
           repository: ${{ inputs.engine-repo }}
           ref: ${{ inputs.engine-ref }}
           path: .swarm-engine
+          persist-credentials: false
 
       - name: Bump attempts
         id: bump-attempts-step
@@ -199,6 +200,7 @@ jobs:
           repository: ${{ inputs.engine-repo }}
           ref: ${{ inputs.engine-ref }}
           path: .swarm-engine
+          persist-credentials: false
 
       # ── claude-code-action adapter: post @claude PR comment ────────────────
       - name: Post @claude re-invoke comment

@@ -107,6 +107,7 @@ jobs:
           repository: ${{ inputs.engine-repo }}
           ref: ${{ inputs.engine-ref }}
           path: .swarm-engine
+          persist-credentials: false
 
       - name: Fetch issue context
         id: ctx
@@ -170,6 +171,7 @@ jobs:
           repository: ${{ inputs.engine-repo }}
           ref: ${{ inputs.engine-ref }}
           path: .swarm-engine
+          persist-credentials: false
 
       # ── spec: post comment + transition ───────────────────────────────────
       - name: Post spec as issue comment

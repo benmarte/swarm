@@ -124,6 +124,7 @@ jobs:
           repository: ${{ inputs.engine-repo }}
           ref: ${{ inputs.engine-ref }}
           path: .swarm-engine
+          persist-credentials: false
 
       - name: Fetch PR diff and metadata
         id: ctx
@@ -288,6 +289,7 @@ jobs:
           repository: ${{ inputs.engine-repo }}
           ref: ${{ inputs.engine-ref }}
           path: .swarm-engine
+          persist-credentials: false
 
       - name: Fetch PR diff and metadata
         id: ctx
