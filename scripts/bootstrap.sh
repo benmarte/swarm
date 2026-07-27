@@ -390,7 +390,7 @@ on:
 jobs:
   intake:
     if: github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'swarm:go')
-    uses: benmarte/swarm/workflows/intake.yml@main
+    uses: benmarte/swarm/.github/workflows/intake.yml@main
     with:
       issue: ${{ github.event.issue.number }}
       # runner-label: swarm-agent   # default; override if your runner uses a different label

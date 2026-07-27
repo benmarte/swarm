@@ -12,8 +12,8 @@
 # fix.yml into a testable shell function that mirrors what the workflow steps do.
 
 REPO_ROOT="$(git -C "$(dirname "$BATS_TEST_FILENAME")" rev-parse --show-toplevel)"
-PR_GATES="$REPO_ROOT/workflows/pr-gates.yml"
-FIX="$REPO_ROOT/workflows/fix.yml"
+PR_GATES="$REPO_ROOT/.github/workflows/pr-gates.yml"
+FIX="$REPO_ROOT/.github/workflows/fix.yml"
 BUMP_SH="$REPO_ROOT/actions/bump-attempts/bump-attempts.sh"
 STUBS_DIR="$REPO_ROOT/tests/stubs"
 

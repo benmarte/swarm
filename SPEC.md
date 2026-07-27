@@ -95,8 +95,9 @@ Two files, one rule: **behavior is committed, secrets never are.**
 swarm/
 ├── SPEC.md                        # this file
 ├── README.md                      # quickstart + adoption guide
-├── .github/workflows/             # swarm's OWN CI (actionlint, schema tests, e2e dispatch)
-├── workflows/                     # reusable workflows (workflow_call) — the product
+├── .github/workflows/             # reusable workflows (workflow_call) — the product + swarm's OWN CI
+│                                  # GitHub hard constraint: cross-repo uses: requires this exact path
+├── workflows/                     # pointer only — no .yml files; README links to .github/workflows/
 ├── actions/                       # composite actions: agent-run/, develop-run/, validate-outcome/, transition/, bump-attempts/, notify/
 │   ├── agent-run/adapters/        # claude.sh, openai-compat.sh
 │   ├── develop-run/adapters/      # claude-code-action/, headless.sh

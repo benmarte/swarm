@@ -36,11 +36,11 @@ Swarm is a pipeline that runs AI agents against GitHub issue content and PR diff
 
 3. **Random `GITHUB_OUTPUT` delimiters:** all multi-line values written to `$GITHUB_OUTPUT` use the heredoc delimiter pattern with a random hex suffix (`openssl rand -hex 16`). This prevents a crafted issue body from terminating the delimiter early and injecting new key=value pairs into the step output.
 
-   **File:** `workflows/intake.yml`, `workflows/develop.yml`, `workflows/sweeper.yml` — the `delim="swarm_$(openssl rand -hex 16)"` pattern in every step that writes multi-line context to `$GITHUB_OUTPUT`.
+   **File:** `.github/workflows/intake.yml`, `.github/workflows/develop.yml`, `.github/workflows/sweeper.yml` — the `delim="swarm_$(openssl rand -hex 16)"` pattern in every step that writes multi-line context to `$GITHUB_OUTPUT`.
 
 4. **`tr -d '\n\r'` sanitization:** verdict and summary values read from `outcome.json` into `$GITHUB_OUTPUT` are sanitized with `tr -d '\n\r'` before being written. This prevents a newline-injection attack that could spoof additional `key=value` pairs (e.g., an outcome containing `approve\nverdict=approve`).
 
-   **File:** `workflows/pr-gates.yml` — the `Read outcome` steps in the `reviewer` and `security` jobs.
+   **File:** `.github/workflows/pr-gates.yml` — the `Read outcome` steps in the `reviewer` and `security` jobs.
 
 ---
 
@@ -86,7 +86,7 @@ No routing step ever parses agent prose. Verdict extraction is always `jq -r '.v
 
 The `GITHUB_TOKEN` with least-privilege is the default. `SWARM_TOKEN` (the reviewer PAT) is only mapped to the `reviewer-post` job's `GH_TOKEN` env — it is not exposed to agent jobs.
 
-**File:** All workflow YAML files (`workflows/*.yml`) — each `jobs.<name>.permissions:` block.
+**File:** All workflow YAML files (`.github/workflows/*.yml`) — each `jobs.<name>.permissions:` block.
 
 ---
 
@@ -101,7 +101,7 @@ The `GITHUB_TOKEN` with least-privilege is the default. `SWARM_TOKEN` (the revie
 
 Swarm's own CI (`actionlint`) enforces that all `uses:` references follow this pattern.
 
-**File:** All workflow YAML files; `.github/workflows/ci.yml` — `actionlint` static check.
+**File:** All workflow YAML files (`.github/workflows/*.yml`); `.github/workflows/ci.yml` — `actionlint` static check.
 
 ---
 
@@ -141,7 +141,7 @@ forbidden_files:
 
 **Enforcement:** `.env` is gitignored and never committed. Workflows consume secrets only from GitHub Secrets (the `secrets:` context), which are masked in logs. The workflow YAML files contain no `source .env` or equivalent step. Bootstrap explicitly documents: "At runtime, workflows consume secrets only from GitHub Secrets; the `.env` file is a provisioning input, not a runtime dependency."
 
-**File:** All `workflows/*.yml` — absence of any file-based secret loading; `SPEC.md §2.6` — the configuration model documentation.
+**File:** All `.github/workflows/*.yml` — absence of any file-based secret loading; `SPEC.md §2.6` — the configuration model documentation.
 
 ---
 
@@ -151,9 +151,9 @@ forbidden_files:
 |---|---|---|
 | 1. Human-only `swarm:go` | Caller `.github/workflows/swarm.yml` | `if: github.event.label.name == 'swarm:go'` condition |
 | 2. No fork PRs | Caller `.github/workflows/swarm.yml` | `startsWith(github.head_ref, 'swarm/')` guard |
-| 3. Untrusted issue bodies | `workflows/*.yml`, `prompts/*.md` | Prompt guards, JSON context, random GITHUB_OUTPUT delimiters, `tr -d '\n\r'` |
+| 3. Untrusted issue bodies | `.github/workflows/*.yml`, `prompts/*.md` | Prompt guards, JSON context, random GITHUB_OUTPUT delimiters, `tr -d '\n\r'` |
 | 4. Agents never write labels | `actions/transition/transition.sh`, `actions/bump-attempts/bump-attempts.sh` | Hard-coded allowlists; `--allowedTools "Read,Glob,Grep"` excludes Bash |
 | 5. Schema validation gate | `actions/validate-outcome/validate.sh`, `schemas/outcome.schema.json` | `ajv-cli@5.0.0` strict JSON Schema validation; no prose parsing |
-| 6. Least-privilege permissions | All `workflows/*.yml` | Explicit `permissions:` per job |
-| 7. SHA-pinned actions | All `workflows/*.yml` | Full SHA + version comment; enforced by `actionlint` in CI |
+| 6. Least-privilege permissions | All `.github/workflows/*.yml` | Explicit `permissions:` per job |
+| 7. SHA-pinned actions | All `.github/workflows/*.yml` | Full SHA + version comment; enforced by `actionlint` in CI |
 | 8. Secret hygiene + forbidden-files | `scripts/bootstrap.sh`, `talos.pipeline.yml`, `.gitignore` | stdin discipline; forbidden-files gate; `.env.example` exemption rationale |

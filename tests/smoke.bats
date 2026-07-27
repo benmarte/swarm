@@ -9,8 +9,26 @@ REPO_ROOT="$(git -C "$(dirname "$BATS_TEST_FILENAME")" rev-parse --show-toplevel
   [ -x "$REPO_ROOT/scripts/verify.sh" ]
 }
 
-@test "workflows/ directory exists" {
+@test "workflows/ directory exists (pointer only — no .yml files)" {
   [ -d "$REPO_ROOT/workflows" ]
+  # Guard: no .yml files must remain in workflows/ — they live in .github/workflows/
+  count="$(find "$REPO_ROOT/workflows" -maxdepth 1 -name '*.yml' | wc -l | tr -d ' ')"
+  [ "$count" -eq 0 ]
+}
+
+@test ".github/workflows/ contains all 7 reusable workflow YMLs" {
+  for wf in intake spec develop pr-gates fix docs sweeper; do
+    [ -f "$REPO_ROOT/.github/workflows/${wf}.yml" ]
+  done
+}
+
+@test "no stale benmarte/swarm/workflows/ references in docs or README" {
+  # Ensure zero uses: references point to the old workflows/ path
+  count="$(grep -rn 'benmarte/swarm/workflows/' \
+      "$REPO_ROOT/docs" "$REPO_ROOT/README.md" \
+      --include='*.md' --include='*.yml' --include='*.bats' --include='*.sh' \
+      2>/dev/null | wc -l | tr -d ' ')"
+  [ "$count" -eq 0 ]
 }
 
 @test "actions/agent-run/adapters/ directory exists" {
