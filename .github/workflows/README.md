@@ -37,6 +37,8 @@ Runs the **validator** agent on a newly-queued issue and routes the verdict:
 | `model` | string | `""` | LLM model identifier set as `SWARM_LLM_MODEL`. Consumed by `openai-compat`; ignored by `claude`. |
 | `enabled-sinks` | string | `""` | *Reserved* — comma-separated notify sinks. Wired when `transition` exposes the input. |
 | `buzz-channel` | string | `""` | *Reserved* — Buzz/Nostr channel UUID. Wired when `notify` passthrough is added. |
+| `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
+| `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
 **Caller example:**
 
@@ -83,6 +85,8 @@ Runs the **PM** agent on a confirmed issue and posts the resulting spec:
 | `model` | string | `""` | LLM model identifier set as `SWARM_LLM_MODEL`. Consumed by `openai-compat`; ignored by `claude`. |
 | `enabled-sinks` | string | `""` | *Reserved* — comma-separated notify sinks. Wired when `transition` exposes the input. |
 | `buzz-channel` | string | `""` | *Reserved* — Buzz/Nostr channel UUID. Wired when `notify` passthrough is added. |
+| `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
+| `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
 **Caller example:**
 
@@ -124,6 +128,8 @@ Key design decisions: **engine-owns-everything** (see `actions/develop-run/READM
 | `model` | string | `""` | LLM model identifier recorded in the PR body. |
 | `base-branch` | string | `main` | Integration branch for branch creation and PR target. |
 | `maintainer` | string | `""` | GitHub username to assign when `bump-attempts` escalates. |
+| `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
+| `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
 **Caller example:**
 
@@ -178,6 +184,8 @@ real GitHub PR review (approve / request-changes) authenticated via
 | `model` | string | `""` | LLM model identifier. |
 | `maintainer` | string | `""` | Reserved; unused in this workflow. |
 | `qa-required-checks` | string | `""` | Reserved — comma-separated check names; pending #10. |
+| `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
+| `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
 **Required secret:**
 
@@ -235,6 +243,8 @@ is skipped. No additional escalation steps are needed in `fix.yml`.
 | `adapter-cmd` | string | `""` | CLI command for headless adapter. Required when `adapter: headless`. |
 | `model` | string | `""` | LLM model identifier forwarded to the adapter. |
 | `failing-checks` | string | `""` | Comma-separated failing check names forwarded as context. |
+| `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
+| `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
 **Caller example:**
 
@@ -285,6 +295,8 @@ swarm:done`; closes the issue; notifies.
 | `model` | string | `""` | LLM model identifier. |
 | `enabled-sinks` | string | `""` | Comma-separated notify sinks passthrough. |
 | `buzz-channel` | string | `""` | Buzz/Nostr channel UUID passthrough. |
+| `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
+| `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
 **Caller example:**
 
@@ -336,6 +348,8 @@ labels, runs the **orchestrator** agent to audit for stalls, and applies
 | `model` | string | `""` | LLM model identifier. |
 | `enabled-sinks` | string | `""` | Comma-separated notify sinks passthrough. |
 | `buzz-channel` | string | `""` | Buzz/Nostr channel UUID passthrough. |
+| `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
+| `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
 **Caller example (cron + dispatch):**
 
