@@ -19,6 +19,8 @@ SPEC="$REPO_ROOT/workflows/spec.yml"
 DEVELOP="$REPO_ROOT/workflows/develop.yml"
 PR_GATES="$REPO_ROOT/workflows/pr-gates.yml"
 FIX="$REPO_ROOT/workflows/fix.yml"
+DOCS="$REPO_ROOT/workflows/docs.yml"
+SWEEPER="$REPO_ROOT/workflows/sweeper.yml"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -751,4 +753,305 @@ PYEOF
   [ "$status" -eq 0 ]
   run grep -q "headless" "$FIX"
   [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# docs.yml structural tests
+# ---------------------------------------------------------------------------
+
+@test "docs.yml: actionlint passes" {
+  run actionlint "$DOCS"
+  [ "$status" -eq 0 ]
+}
+
+@test "docs.yml: declares on.workflow_call" {
+  run grep -q "workflow_call:" "$DOCS"
+  [ "$status" -eq 0 ]
+}
+
+@test "docs.yml: declares concurrency key" {
+  run grep -q "^concurrency:" "$DOCS"
+  [ "$status" -eq 0 ]
+}
+
+@test "docs.yml: declares runner-label input" {
+  run grep -q "runner-label:" "$DOCS"
+  [ "$status" -eq 0 ]
+}
+
+@test "docs.yml: declares dry-run input" {
+  run grep -q "dry-run:" "$DOCS"
+  [ "$status" -eq 0 ]
+}
+
+@test "docs.yml: declares adapter input" {
+  run grep -q "adapter:" "$DOCS"
+  [ "$status" -eq 0 ]
+}
+
+@test "docs.yml: every job has a permissions block" {
+  WORKFLOW_FILE="$DOCS" python3 - <<'PYEOF'
+import os, sys
+
+with open(os.environ["WORKFLOW_FILE"]) as fh:
+    content = fh.read()
+
+in_jobs = False
+job_count = 0
+perms_count = 0
+
+for line in content.split("\n"):
+    if line.strip() == "jobs:":
+        in_jobs = True
+        continue
+    if not in_jobs:
+        continue
+    if not line.strip():
+        continue
+    cur = len(line) - len(line.lstrip())
+    if cur == 2 and line.rstrip().endswith(":") and not line.strip().startswith("#"):
+        job_count += 1
+    if line.strip().startswith("permissions:"):
+        perms_count += 1
+
+if job_count == 0:
+    print("No jobs found in workflow")
+    sys.exit(1)
+if perms_count < job_count:
+    print(f"Jobs: {job_count}, permissions blocks: {perms_count} — every job must declare permissions")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$?" -eq 0 ]
+}
+
+@test "docs.yml: every job has timeout-minutes" {
+  WORKFLOW_FILE="$DOCS" python3 - <<'PYEOF'
+import os, sys
+
+with open(os.environ["WORKFLOW_FILE"]) as fh:
+    content = fh.read()
+
+in_jobs = False
+job_count = 0
+timeout_count = 0
+
+for line in content.split("\n"):
+    if line.strip() == "jobs:":
+        in_jobs = True
+        continue
+    if not in_jobs:
+        continue
+    if not line.strip():
+        continue
+    cur = len(line) - len(line.lstrip())
+    if cur == 2 and line.rstrip().endswith(":") and not line.strip().startswith("#"):
+        job_count += 1
+    if "timeout-minutes:" in line:
+        timeout_count += 1
+
+if job_count == 0:
+    print("No jobs found")
+    sys.exit(1)
+if timeout_count < job_count:
+    print(f"Jobs: {job_count}, timeout-minutes declarations: {timeout_count}")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$?" -eq 0 ]
+}
+
+@test "docs.yml: no '\${{' in run: block content" {
+  run check_no_interpolation_in_run "$DOCS"
+  [ "$status" -eq 0 ]
+}
+
+@test "docs.yml: no static GITHUB_OUTPUT heredoc delimiters" {
+  run check_no_static_output_delimiters "$DOCS"
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# sweeper.yml structural tests
+# ---------------------------------------------------------------------------
+
+@test "sweeper.yml: actionlint passes" {
+  run actionlint "$SWEEPER"
+  [ "$status" -eq 0 ]
+}
+
+@test "sweeper.yml: declares on.workflow_call" {
+  # Per SPEC §2.2 all swarm reusable workflows use workflow_call; callers own the cron
+  run grep -q "workflow_call:" "$SWEEPER"
+  [ "$status" -eq 0 ]
+}
+
+@test "sweeper.yml: declares on.workflow_dispatch trigger" {
+  run grep -q "workflow_dispatch:" "$SWEEPER"
+  [ "$status" -eq 0 ]
+}
+
+@test "sweeper.yml: does NOT have a bare on.schedule trigger" {
+  # The schedule: trigger lives in the caller, not in the reusable workflow.
+  # A top-level "  schedule:" line under "on:" would run in the swarm repo itself.
+  WORKFLOW_FILE="$SWEEPER" python3 - <<'PYEOF'
+import os, sys
+
+with open(os.environ["WORKFLOW_FILE"]) as fh:
+    lines = fh.readlines()
+
+# Detect a "  schedule:" line that is a direct child of the top-level "on:" block.
+in_on = False
+for i, line in enumerate(lines, 1):
+    stripped = line.rstrip('\n')
+    if stripped == 'on:':
+        in_on = True
+        continue
+    if in_on:
+        # Any non-indented line closes the on: block
+        if stripped and not stripped.startswith(' ') and not stripped.startswith('#'):
+            in_on = False
+            continue
+        # Two-space indented "  schedule:" is a direct on: child
+        if stripped.lstrip() == 'schedule:' and (len(stripped) - len(stripped.lstrip())) == 2:
+            print(f"Line {i}: sweeper.yml has a bare on.schedule trigger — cron must live in the caller: {stripped!r}")
+            sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$?" -eq 0 ]
+}
+
+@test "sweeper.yml: declares dry-run input" {
+  run grep -q "dry-run:" "$SWEEPER"
+  [ "$status" -eq 0 ]
+}
+
+@test "sweeper.yml: every job has a permissions block" {
+  WORKFLOW_FILE="$SWEEPER" python3 - <<'PYEOF'
+import os, sys
+
+with open(os.environ["WORKFLOW_FILE"]) as fh:
+    content = fh.read()
+
+in_jobs = False
+job_count = 0
+perms_count = 0
+
+for line in content.split("\n"):
+    if line.strip() == "jobs:":
+        in_jobs = True
+        continue
+    if not in_jobs:
+        continue
+    if not line.strip():
+        continue
+    cur = len(line) - len(line.lstrip())
+    if cur == 2 and line.rstrip().endswith(":") and not line.strip().startswith("#"):
+        job_count += 1
+    if line.strip().startswith("permissions:"):
+        perms_count += 1
+
+if job_count == 0:
+    print("No jobs found in workflow")
+    sys.exit(1)
+if perms_count < job_count:
+    print(f"Jobs: {job_count}, permissions blocks: {perms_count} — every job must declare permissions")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$?" -eq 0 ]
+}
+
+@test "sweeper.yml: every job has timeout-minutes" {
+  WORKFLOW_FILE="$SWEEPER" python3 - <<'PYEOF'
+import os, sys
+
+with open(os.environ["WORKFLOW_FILE"]) as fh:
+    content = fh.read()
+
+in_jobs = False
+job_count = 0
+timeout_count = 0
+
+for line in content.split("\n"):
+    if line.strip() == "jobs:":
+        in_jobs = True
+        continue
+    if not in_jobs:
+        continue
+    if not line.strip():
+        continue
+    cur = len(line) - len(line.lstrip())
+    if cur == 2 and line.rstrip().endswith(":") and not line.strip().startswith("#"):
+        job_count += 1
+    if "timeout-minutes:" in line:
+        timeout_count += 1
+
+if job_count == 0:
+    print("No jobs found")
+    sys.exit(1)
+if timeout_count < job_count:
+    print(f"Jobs: {job_count}, timeout-minutes declarations: {timeout_count}")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$?" -eq 0 ]
+}
+
+@test "sweeper.yml: no '\${{' in run: block content" {
+  run check_no_interpolation_in_run "$SWEEPER"
+  [ "$status" -eq 0 ]
+}
+
+@test "sweeper.yml: no static GITHUB_OUTPUT heredoc delimiters" {
+  run check_no_static_output_delimiters "$SWEEPER"
+  [ "$status" -eq 0 ]
+}
+
+@test "sweeper.yml: does not reference swarm:paused in any label-write context" {
+  WORKFLOW_FILE="$SWEEPER" python3 - <<'PYEOF'
+import os, re, sys
+
+with open(os.environ["WORKFLOW_FILE"]) as fh:
+    lines = fh.readlines()
+
+mutation_pattern = re.compile(r'(add-label|remove-label|--add-label|--remove-label)')
+paused_pattern = re.compile(r'swarm:paused')
+
+for i, line in enumerate(lines, 1):
+    stripped = line.strip()
+    if stripped.startswith('#'):
+        continue
+    if paused_pattern.search(line) and mutation_pattern.search(line):
+        print(f"Line {i}: sweeper.yml references swarm:paused in a label mutation context: {line!r}")
+        sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$?" -eq 0 ]
+}
+
+@test "sweeper.yml: label-add allowlist is exactly swarm:needs-human" {
+  WORKFLOW_FILE="$SWEEPER" python3 - <<'PYEOF'
+import os, re, sys
+
+with open(os.environ["WORKFLOW_FILE"]) as fh:
+    content = fh.read()
+
+add_label_pattern = re.compile(r'--add-label\s+["\']?([^\s"\'\\]+)["\']?')
+
+for i, line in enumerate(content.split('\n'), 1):
+    stripped = line.strip()
+    if stripped.startswith('#'):
+        continue
+    for match in add_label_pattern.finditer(line):
+        label = match.group(1).strip('"\'')
+        if label != 'swarm:needs-human':
+            print(f"Line {i}: sweeper adds label '{label}' — only 'swarm:needs-human' is permitted: {line!r}")
+            sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$?" -eq 0 ]
 }

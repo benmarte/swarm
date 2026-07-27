@@ -1,0 +1,19 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "orchestrator",
+  "verdict": "report",
+  "refs": { "issue": 0 },
+  "evidence": {
+    "summary": "Nightly sweep: 1 stuck issue found; 1 flagged for escalation.",
+    "checked_issues": [42],
+    "stuck": [
+      {
+        "issue": 42,
+        "stage_label": "swarm:spec",
+        "last_activity_iso": "2026-07-01T10:00:00Z",
+        "age_hours": 600,
+        "recommendation": "escalate"
+      }
+    ]
+  }
+}

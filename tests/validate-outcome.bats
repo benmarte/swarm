@@ -179,3 +179,21 @@ validate_fails() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"not found"* ]]
 }
+
+# ---------------------------------------------------------------------------
+# outcome — docs role: skipped-with-reason fixture
+# ---------------------------------------------------------------------------
+
+@test "outcome/docs skipped-with-reason.json passes schema" {
+  validate_passes "$OUTCOME_SCHEMA" "$FIXTURES/outcome/docs/skipped-with-reason.json"
+}
+
+@test "outcome/docs invalid-skipped-no-reason.json passes schema (reason constraint is structural, not schema)" {
+  # The schema does not enforce reason presence — that is a deterministic glue step.
+  # invalid-skipped-no-reason.json is schema-valid; it is rejected by check-skipped-reason.sh.
+  validate_passes "$OUTCOME_SCHEMA" "$FIXTURES/outcome/docs/invalid-skipped-no-reason.json"
+}
+
+@test "outcome/docs invalid-bad-verdict.json fails schema (bad-verdict still rejected)" {
+  validate_fails "$OUTCOME_SCHEMA" "$FIXTURES/outcome/docs/invalid-bad-verdict.json"
+}

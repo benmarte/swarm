@@ -1,0 +1,10 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "docs",
+  "verdict": "skipped",
+  "refs": { "issue": 7, "pr": 21 },
+  "evidence": {
+    "summary": "No documentation needed.",
+    "reason": ""
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "orchestrator",
+  "verdict": "report",
+  "refs": { "issue": 0 },
+  "evidence": {
+    "summary": "Hostile report fixture: contains malformed issue values that must be rejected.",
+    "checked_issues": [],
+    "stuck": [
+      {
+        "issue": "13; rm -rf /",
+        "stage_label": "swarm:spec",
+        "last_activity_iso": "2026-07-01T10:00:00Z",
+        "age_hours": 600,
+        "recommendation": "escalate"
+      },
+      {
+        "issue": -1,
+        "stage_label": "swarm:develop",
+        "last_activity_iso": "2026-07-01T10:00:00Z",
+        "age_hours": 500,
+        "recommendation": "escalate"
+      }
+    ]
+  }
+}

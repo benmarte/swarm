@@ -254,12 +254,110 @@ jobs:
 
 ---
 
-## Planned workflows (issues #9+)
+### `docs.yml` — Post-merge documentation stage (SPEC §2.1/§2.2)
 
-| File | Stage | Agent? |
-|------|-------|--------|
-| `docs.yml` | Docs agent after PR merge | docs |
-| `sweeper.yml` | Nightly stuck-issue audit | orchestrator |
+Called after a swarm PR is merged. Runs the **docs** agent to assess what should
+be documented; posts a docs summary comment; transitions the issue `swarm:docs →
+swarm:done`; closes the issue; notifies.
+
+> **v1 simplification:** The docs agent is a decision role (audit-only). It emits
+> `verdict + evidence` describing what needs documentation. Actual doc commits land
+> via a normal human-authored or automation PR in a follow-up workflow (v1.1).
+
+> **Skipped-reason enforcement:** A `verdict=skipped` outcome with an empty or
+> absent `evidence.reason` causes the job to fail loudly. The schema cannot express
+> this constraint — a deterministic step owns it via `scripts/check-skipped-reason.sh`.
+
+**Caller-input surface:**
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `issue` | number | *(required)* | Issue number being documented. |
+| `pr` | number | *(required)* | Merged PR number. |
+| `runner-label` | string | `swarm-agent` | Runner label for the agent job. Glue jobs use `ubuntu-latest`. |
+| `dry-run` | boolean | `false` | Log intended mutations without executing any GitHub API writes. |
+| `adapter` | string | `claude` | Agent adapter forwarded to `agent-run`. One of: `claude`, `openai-compat`. |
+| `model` | string | `""` | LLM model identifier. |
+| `enabled-sinks` | string | `""` | Comma-separated notify sinks passthrough. |
+| `buzz-channel` | string | `""` | Buzz/Nostr channel UUID passthrough. |
+
+**Caller example:**
+
+```yaml
+# .github/workflows/swarm.yml (consumer repo)
+on:
+  pull_request:
+    types: [closed]
+    branches: ['swarm/issue-*']
+
+jobs:
+  docs:
+    if: github.event.pull_request.merged == true
+    uses: benmarte/swarm/.github/workflows/docs.yml@v1
+    with:
+      issue: 42  # extract from PR branch name
+      pr: ${{ github.event.pull_request.number }}
+      runner-label: swarm-agent
+      dry-run: false
+      adapter: claude
+    secrets: inherit
+```
+
+---
+
+### `sweeper.yml` — Nightly fleet auditor (SPEC §2.1/§2.2/§8.2)
+
+Per SPEC §2.2, all swarm reusable workflows use `on: workflow_call` — consumers
+pin `@v1` and own their own cron trigger. Gathers all open issues with `swarm:*`
+labels, runs the **orchestrator** agent to audit for stalls, and applies
+`swarm:needs-human` to stuck issues.
+
+> **IMPORTANT (SPEC §8.2):** The sweeper NEVER touches `swarm:paused`. The only
+> label the escalate job may add is `swarm:needs-human`. This constraint is
+> structurally enforced by the workflow and verified by `tests/sweeper.bats`.
+
+> **`workflow_dispatch` is also declared** for manual triggering inside the swarm
+> repo itself (development / one-shot audits). The `schedule:` trigger lives
+> **only in the caller workflow** — it is not declared here.
+
+**Inputs (workflow_dispatch + schedule env defaults):**
+
+| Input | Type | Default | Description |
+|-------|------|---------|-------------|
+| `stall-threshold-hours` | number | `48` | Hours of inactivity before an issue is considered stuck. |
+| `runner-label` | string | `swarm-agent` | Runner label for the agent job. |
+| `dry-run` | boolean | `false` | Log intended mutations without executing any GitHub API writes. |
+| `adapter` | string | `claude` | Agent adapter forwarded to `agent-run`. |
+| `model` | string | `""` | LLM model identifier. |
+| `enabled-sinks` | string | `""` | Comma-separated notify sinks passthrough. |
+| `buzz-channel` | string | `""` | Buzz/Nostr channel UUID passthrough. |
+
+**Caller example (cron + dispatch):**
+
+```yaml
+# .github/workflows/swarm-sweep.yml (consumer repo)
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      stall-threshold-hours:
+        description: Hours before an issue is stuck
+        default: '48'
+      dry-run:
+        description: Log only, no mutations
+        default: 'false'
+
+jobs:
+  sweeper:
+    uses: benmarte/swarm/.github/workflows/sweeper.yml@v1
+    with:
+      stall-threshold-hours: ${{ fromJson(inputs.stall-threshold-hours || '48') }}
+      dry-run: ${{ fromJson(inputs.dry-run || 'false') }}
+      runner-label: swarm-agent
+      adapter: claude
+    secrets: inherit
+```
 
 ---
 
