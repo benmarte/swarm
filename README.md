@@ -84,7 +84,7 @@ See [docs/adopting.md](docs/adopting.md) for the full step-by-step guide, includ
 ## Repository layout
 
 ```
-workflows/          reusable workflow entry-points (one per pipeline stage)
+.github/workflows/  reusable workflow entry-points (one per pipeline stage) — required location for cross-repo uses:
 actions/
   agent-run/        decision-role runner contract; adapters/claude.sh + openai-compat.sh
   develop-run/      coding-agent contract; adapters/claude-code-action/ + headless.sh

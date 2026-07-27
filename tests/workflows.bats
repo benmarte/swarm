@@ -14,13 +14,13 @@
 # actionlint must be installed (verify.sh enforces this; CI installs it).
 
 REPO_ROOT="$(git -C "$(dirname "$BATS_TEST_FILENAME")" rev-parse --show-toplevel)"
-INTAKE="$REPO_ROOT/workflows/intake.yml"
-SPEC="$REPO_ROOT/workflows/spec.yml"
-DEVELOP="$REPO_ROOT/workflows/develop.yml"
-PR_GATES="$REPO_ROOT/workflows/pr-gates.yml"
-FIX="$REPO_ROOT/workflows/fix.yml"
-DOCS="$REPO_ROOT/workflows/docs.yml"
-SWEEPER="$REPO_ROOT/workflows/sweeper.yml"
+INTAKE="$REPO_ROOT/.github/workflows/intake.yml"
+SPEC="$REPO_ROOT/.github/workflows/spec.yml"
+DEVELOP="$REPO_ROOT/.github/workflows/develop.yml"
+PR_GATES="$REPO_ROOT/.github/workflows/pr-gates.yml"
+FIX="$REPO_ROOT/.github/workflows/fix.yml"
+DOCS="$REPO_ROOT/.github/workflows/docs.yml"
+SWEEPER="$REPO_ROOT/.github/workflows/sweeper.yml"
 
 # ---------------------------------------------------------------------------
 # Helpers

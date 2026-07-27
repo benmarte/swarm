@@ -1,7 +1,7 @@
 # adapters/claude-code-action/
 
 Wrapper documentation for using `anthropics/claude-code-action` as the
-develop-run adapter in `workflows/develop.yml`.
+develop-run adapter in `.github/workflows/develop.yml`.
 
 ## Why not a composite action?
 
@@ -73,4 +73,4 @@ git ls-remote https://github.com/anthropics/claude-code-action 'refs/tags/v1*' \
 git ls-remote https://github.com/anthropics/claude-code-action 'refs/tags/v1.0.183^{}'
 ```
 
-Update the SHA in `workflows/develop.yml` and this file together.
+Update the SHA in `.github/workflows/develop.yml` and this file together.

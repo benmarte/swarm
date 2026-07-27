@@ -15,7 +15,7 @@
 REPO_ROOT="$(git -C "$(dirname "$BATS_TEST_FILENAME")" rev-parse --show-toplevel)"
 PARSE_SCRIPT="$REPO_ROOT/scripts/parse-sweeper-report.sh"
 CHECK_SCRIPT="$REPO_ROOT/scripts/check-skipped-reason.sh"
-SWEEPER_YML="$REPO_ROOT/workflows/sweeper.yml"
+SWEEPER_YML="$REPO_ROOT/.github/workflows/sweeper.yml"
 FIXTURES="$REPO_ROOT/tests/fixtures"
 
 # ---------------------------------------------------------------------------

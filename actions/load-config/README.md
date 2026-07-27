@@ -27,4 +27,4 @@ Usage:
 
 Required permissions on the calling job: `contents: read`.
 
-Wired as the first composite-action step in `workflows/intake.yml` (after checkout, before issue context fetch). Implemented in issue #10.
+Wired as the first composite-action step in `.github/workflows/intake.yml` (after checkout, before issue context fetch). Implemented in issue #10.

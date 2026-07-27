@@ -192,7 +192,7 @@ jobs:
       github.event_name == 'issues' &&
       github.event.action == 'labeled' &&
       github.event.label.name == 'swarm:go'
-    uses: benmarte/swarm/workflows/intake.yml@v1
+    uses: benmarte/swarm/.github/workflows/intake.yml@v1
     with:
       issue: ${{ github.event.issue.number }}
     secrets: inherit
@@ -202,7 +202,7 @@ jobs:
       github.event_name == 'issues' &&
       github.event.action == 'labeled' &&
       github.event.label.name == 'swarm:spec'
-    uses: benmarte/swarm/workflows/spec.yml@v1
+    uses: benmarte/swarm/.github/workflows/spec.yml@v1
     with:
       issue: ${{ github.event.issue.number }}
     secrets: inherit
@@ -212,7 +212,7 @@ jobs:
       github.event_name == 'issues' &&
       github.event.action == 'labeled' &&
       github.event.label.name == 'swarm:develop'
-    uses: benmarte/swarm/workflows/develop.yml@v1
+    uses: benmarte/swarm/.github/workflows/develop.yml@v1
     with:
       issue: ${{ github.event.issue.number }}
       adapter: claude-code-action   # or: headless
@@ -244,7 +244,7 @@ jobs:
 
   pr-gates:
     needs: extract-for-gates
-    uses: benmarte/swarm/workflows/pr-gates.yml@v1
+    uses: benmarte/swarm/.github/workflows/pr-gates.yml@v1
     with:
       pr: ${{ github.event.number }}
       issue: ${{ fromJSON(needs.extract-for-gates.outputs.issue) }}   # fromJSON: string → number input
@@ -278,7 +278,7 @@ jobs:
 
   fix:
     needs: extract-for-fix
-    uses: benmarte/swarm/workflows/fix.yml@v1
+    uses: benmarte/swarm/.github/workflows/fix.yml@v1
     with:
       pr: ${{ fromJSON(needs.extract-for-fix.outputs.pr) }}          # fromJSON: string → number input
       issue: ${{ fromJSON(needs.extract-for-fix.outputs.issue) }}    # fromJSON: string → number input
@@ -311,7 +311,7 @@ jobs:
 
   docs:
     needs: extract-for-docs
-    uses: benmarte/swarm/workflows/docs.yml@v1
+    uses: benmarte/swarm/.github/workflows/docs.yml@v1
     with:
       pr: ${{ github.event.number }}
       issue: ${{ fromJSON(needs.extract-for-docs.outputs.issue) }}   # fromJSON: string → number input
@@ -323,7 +323,7 @@ jobs:
 
   sweeper:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    uses: benmarte/swarm/workflows/sweeper.yml@v1
+    uses: benmarte/swarm/.github/workflows/sweeper.yml@v1
     with:
       stall-threshold-hours: 48
       # dry-run: false
