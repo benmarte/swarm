@@ -126,9 +126,36 @@ cp swarm.config.yml /path/to/your/consumer-repo/swarm.config.yml
 
 ## Step 3 — Provision the SWARM_TOKEN reviewer PAT
 
-`pr-gates.yml` posts real GitHub PR reviews using a separate actor so the review is not self-approved. `GITHUB_TOKEN` cannot approve a PR it opened.
+### Why SWARM_TOKEN is required for multi-stage operation
 
-1. Create a fine-grained PAT for a second GitHub account (or a bot account) with **pull-requests: write** scope scoped to the consumer repo.
+GitHub suppresses `workflow_run` and `issues` event triggers for events caused
+by `GITHUB_TOKEN` (the built-in runner token). This is GitHub's recursion guard:
+a workflow run cannot trigger another workflow run with its own token. Swarm's
+design is label-event cascading — `intake` applies `swarm:spec`, which triggers
+`spec`, which applies `swarm:develop`, which triggers `develop`, and so on. If any
+stage writes a label with `GITHUB_TOKEN`, the cascade stops there and subsequent
+stages never fire.
+
+A fine-grained PAT provisioned as `SWARM_TOKEN` bypasses the guard because the
+label event is authored by a distinct actor (the PAT owner), not by the workflow
+runner itself.
+
+When `SWARM_TOKEN` is absent the transition and bump-attempts actions emit a loud
+`WARNING: Stage cascade will NOT trigger the next workflow` message and fall back
+to `GITHUB_TOKEN` for degraded-mode operation (useful for dry-run testing or
+single-stage invocations).
+
+### Required PAT scopes
+
+Create a fine-grained PAT for a second GitHub account (or a bot account) with the
+following scopes scoped to the consumer repo:
+
+- **Pull requests: Read and write** — so `pr-gates.yml` can post real GitHub PR reviews as a distinct actor (`GITHUB_TOKEN` cannot approve a PR it opened)
+- **Issues: Read and write** — so stage-label transitions (swarm:go → swarm:spec → swarm:develop → etc.) are authored by a distinct actor and trigger the next cascade workflow
+
+### Setup
+
+1. Create a fine-grained PAT as described above.
 2. Add it as a secret in the consumer repo named `SWARM_TOKEN`:
 
 ```bash

@@ -75,6 +75,13 @@ on:
         type: string
         default: v1
     secrets:
+      SWARM_TOKEN:
+        description: >
+          Fine-grained PAT with issues:write scope for a distinct actor.
+          Required for stage-label cascades — GITHUB_TOKEN-written labels do not
+          trigger workflow runs (GitHub recursion guard). When absent the
+          transition action falls back to GITHUB_TOKEN with a loud warning.
+        required: false
       SWARM_LLM_API_KEY:
         description: >
           Bearer token for the OpenAI-compatible LLM endpoint.
@@ -186,6 +193,7 @@ jobs:
           issue-number: ${{ inputs.issue }}
           from-stage: swarm:go
           to-stage: swarm:spec
+          token: ${{ secrets.SWARM_TOKEN }}
 
       - name: Dry-run log (confirmed)
         if: needs.agent.outputs.verdict == 'confirmed' && inputs.dry-run == true
@@ -240,6 +248,7 @@ jobs:
           issue-number: ${{ inputs.issue }}
           from-stage: swarm:go
           to-stage: swarm:needs-human
+          token: ${{ secrets.SWARM_TOKEN }}
 
       - name: Dry-run log (needs-info)
         if: needs.agent.outputs.verdict == 'needs-info' && inputs.dry-run == true

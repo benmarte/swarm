@@ -97,6 +97,24 @@ on:
         required: false
         type: string
         default: v1
+    secrets:
+      SWARM_TOKEN:
+        description: >
+          Fine-grained PAT with issues:write scope for a distinct actor.
+          Forwarded to develop-run which passes it to transition.sh and
+          bump-attempts.sh so that label writes trigger cascade workflows.
+          When absent those scripts fall back to GITHUB_TOKEN with a warning.
+        required: false
+      ANTHROPIC_API_KEY:
+        description: >
+          Anthropic API key for the claude-code-action adapter.
+          Required when adapter=claude-code-action and using API-key auth.
+        required: false
+      CLAUDE_CODE_OAUTH_TOKEN:
+        description: >
+          Claude Code OAuth token for the claude-code-action adapter.
+          Alternative to ANTHROPIC_API_KEY for Max/Pro subscription auth.
+        required: false
 
 concurrency:
   group: swarm-${{ inputs.issue }}
@@ -223,3 +241,4 @@ jobs:
           adapter-cmd: ${{ inputs.adapter-cmd }}
           model: ${{ inputs.model }}
           maintainer: ${{ inputs.maintainer }}
+          token: ${{ secrets.SWARM_TOKEN }}

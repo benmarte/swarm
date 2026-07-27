@@ -12,9 +12,13 @@
 #   ADAPTER_CMD       — shell command for headless adapter (required when headless)
 #   MODEL             — LLM model identifier (recorded in PR body)
 #   MAINTAINER        — GitHub username for bump-attempts escalation
-#   GH_TOKEN          — GitHub API token
+#   GH_TOKEN          — GitHub API token (fallback when SWARM_TOKEN absent)
 #   GITHUB_REPOSITORY — owner/repo
 #   ACTION_PATH       — path to the action directory (set by action.yml env)
+#
+# Optional env:
+#   SWARM_TOKEN       — fine-grained PAT forwarded to transition.sh and
+#                       bump-attempts.sh for cascade-triggering label writes
 #
 # Exit 0: PR exists and transition succeeded (or dry-run completed).
 # Exit 1: validation failure, adapter error, no-diff, PR verify failure.
@@ -263,6 +267,7 @@ if [ "$pr_count" -eq 0 ]; then
   echo "develop-run: bumping attempts (PR verify failure)" >&2
   export GITHUB_REPOSITORY
   export GH_TOKEN
+  export SWARM_TOKEN="${SWARM_TOKEN:-}"
   export ISSUE_NUMBER
   export MAINTAINER
   export POST_COMMENT="true"
@@ -294,6 +299,7 @@ export FROM_STAGE="swarm:develop"
 export TO_STAGE="swarm:qa"
 export POST_COMMENT="true"
 export GH_TOKEN
+export SWARM_TOKEN="${SWARM_TOKEN:-}"
 export GITHUB_REPOSITORY
 export ACTION_PATH="$ACTION_ROOT/../transition"
 bash "$TRANSITION_SH"

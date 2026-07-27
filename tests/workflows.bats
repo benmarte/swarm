@@ -1247,3 +1247,162 @@ sys.exit(0)
 PYEOF
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# SWARM_TOKEN cascade fix (#40)
+# All 7 reusable workflows must declare SWARM_TOKEN under workflow_call secrets.
+# All transition/bump-attempts action invocations must pass the token input.
+# ---------------------------------------------------------------------------
+
+@test "all 7 workflows declare SWARM_TOKEN under workflow_call secrets" {
+  for wf in "$INTAKE" "$SPEC" "$DEVELOP" "$PR_GATES" "$FIX" "$DOCS" "$SWEEPER"; do
+    if ! grep -q "SWARM_TOKEN:" "$wf"; then
+      printf 'FAIL: %s does not declare SWARM_TOKEN under secrets\n' "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+@test "intake.yml: both transition invocations pass token input" {
+  # Count transition uses: blocks; each must be followed by a token: line
+  run python3 - "$INTAKE" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# Find all actions/transition uses blocks
+uses_blocks = re.findall(
+    r'uses:\s*\./.swarm-engine/actions/transition.*?(?=uses:|steps:|jobs:|\Z)',
+    content, re.DOTALL
+)
+if not uses_blocks:
+    print("No transition uses blocks found")
+    sys.exit(1)
+
+for block in uses_blocks:
+    if 'token:' not in block:
+        print(f"ERROR: transition invocation missing token: input:\n{block[:200]}")
+        sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "spec.yml: transition invocation passes token input" {
+  run python3 - "$SPEC" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+uses_blocks = re.findall(
+    r'uses:\s*\./.swarm-engine/actions/transition.*?(?=uses:|steps:|jobs:|\Z)',
+    content, re.DOTALL
+)
+if not uses_blocks:
+    print("No transition uses blocks found")
+    sys.exit(1)
+
+for block in uses_blocks:
+    if 'token:' not in block:
+        print(f"ERROR: transition invocation missing token: input:\n{block[:200]}")
+        sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "docs.yml: transition invocation passes token input" {
+  run python3 - "$DOCS" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+uses_blocks = re.findall(
+    r'uses:\s*\./.swarm-engine/actions/transition.*?(?=uses:|steps:|jobs:|\Z)',
+    content, re.DOTALL
+)
+if not uses_blocks:
+    print("No transition uses blocks found")
+    sys.exit(1)
+
+for block in uses_blocks:
+    if 'token:' not in block:
+        print(f"ERROR: transition invocation missing token: input:\n{block[:200]}")
+        sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "fix.yml: bump-attempts invocation passes token input" {
+  run python3 - "$FIX" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+uses_blocks = re.findall(
+    r'uses:\s*\./.swarm-engine/actions/bump-attempts.*?(?=uses:|steps:|jobs:|\Z)',
+    content, re.DOTALL
+)
+if not uses_blocks:
+    print("No bump-attempts uses blocks found")
+    sys.exit(1)
+
+for block in uses_blocks:
+    if 'token:' not in block:
+        print(f"ERROR: bump-attempts invocation missing token: input:\n{block[:200]}")
+        sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "develop.yml: develop-run invocation passes token input" {
+  run python3 - "$DEVELOP" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+uses_blocks = re.findall(
+    r'uses:\s*\./.swarm-engine/actions/develop-run.*?(?=uses:|steps:|jobs:|\Z)',
+    content, re.DOTALL
+)
+if not uses_blocks:
+    print("No develop-run uses blocks found")
+    sys.exit(1)
+
+for block in uses_blocks:
+    if 'token:' not in block:
+        print(f"ERROR: develop-run invocation missing token: input:\n{block[:200]}")
+        sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "transition.sh: uses SWARM_TOKEN when set, emits warning when absent" {
+  # Structural check: script must contain the SWARM_TOKEN selection block
+  SCRIPT="$REPO_ROOT/actions/transition/transition.sh"
+  run grep -q "SWARM_TOKEN" "$SCRIPT"
+  [ "$status" -eq 0 ]
+  run grep -q "Stage cascade will NOT trigger" "$SCRIPT"
+  [ "$status" -eq 0 ]
+}
+
+@test "bump-attempts.sh: uses SWARM_TOKEN when set, emits warning when absent" {
+  SCRIPT="$REPO_ROOT/actions/bump-attempts/bump-attempts.sh"
+  run grep -q "SWARM_TOKEN" "$SCRIPT"
+  [ "$status" -eq 0 ]
+  run grep -q "Stage cascade will NOT trigger" "$SCRIPT"
+  [ "$status" -eq 0 ]
+}

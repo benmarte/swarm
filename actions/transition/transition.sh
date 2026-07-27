@@ -6,12 +6,31 @@
 #   ISSUE_NUMBER       — GitHub issue number (integer)
 #   FROM_STAGE         — stage label to remove  (must be in ALLOWED_STAGES)
 #   TO_STAGE           — stage label to add     (must be in ALLOWED_STAGES)
-#   GH_TOKEN           — GitHub token with issues:write scope
+#   GH_TOKEN           — GitHub token with issues:write scope (fallback)
 #   GITHUB_REPOSITORY  — owner/repo
 #
 # Optional env:
+#   SWARM_TOKEN        — fine-grained PAT (preferred over GH_TOKEN so that the
+#                        label event is authored by a distinct actor and triggers
+#                        the next stage workflow. When absent, GH_TOKEN is used
+#                        but a cascade warning is emitted.)
 #   POST_COMMENT       — "true" (default) or "false"
 set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Token selection: prefer SWARM_TOKEN (PAT) so label writes trigger cascades.
+# Fall back to GH_TOKEN (GITHUB_TOKEN) with a loud warning — GitHub suppresses
+# workflow triggers for events caused by GITHUB_TOKEN (recursion guard), so
+# stage cascade will stop without a PAT.
+# ---------------------------------------------------------------------------
+if [ -n "${SWARM_TOKEN:-}" ]; then
+  GH_TOKEN="$SWARM_TOKEN"
+else
+  echo "transition: WARNING: SWARM_TOKEN not set — falling back to GITHUB_TOKEN for label writes." >&2
+  echo "transition: WARNING: Stage cascade will NOT trigger the next workflow without a PAT." >&2
+  echo "transition: WARNING: See docs/adopting.md#swarm-token for required scopes." >&2
+fi
+export GH_TOKEN
 
 # ---------------------------------------------------------------------------
 # Stage label allowlist — SPEC §2.1 / §6: no unvalidated interpolation

@@ -12,6 +12,7 @@ setup() {
   export GH_TOKEN="fake-token"
   export ISSUE_NUMBER="42"
   export POST_COMMENT="false"
+  unset SWARM_TOKEN
   # Prepend stubs dir so our fake gh is found first
   export PATH="$STUBS_DIR:$PATH"
 }
@@ -198,4 +199,50 @@ teardown() {
 
   run bash "$TRANSITION_SH"
   [ "$status" -ne 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# SWARM_TOKEN token selection (#40)
+# ---------------------------------------------------------------------------
+
+@test "token selection: uses SWARM_TOKEN when set (no fallback warning)" {
+  export FROM_STAGE="swarm:go"
+  export TO_STAGE="swarm:spec"
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:go"}]'
+  export SWARM_TOKEN="pat-secret-value"
+
+  run bash "$TRANSITION_SH"
+  [ "$status" -eq 0 ]
+
+  # Fallback warning must NOT appear when SWARM_TOKEN is provided
+  [[ "$output" != *"WARNING: SWARM_TOKEN not set"* ]]
+}
+
+@test "token selection: emits loud warning when SWARM_TOKEN absent" {
+  export FROM_STAGE="swarm:go"
+  export TO_STAGE="swarm:spec"
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:go"}]'
+  unset SWARM_TOKEN
+
+  run bash "$TRANSITION_SH"
+  [ "$status" -eq 0 ]
+
+  # Warning lines must appear in stderr (captured in output by bats)
+  [[ "$output" == *"WARNING: SWARM_TOKEN not set"* ]]
+  [[ "$output" == *"Stage cascade will NOT trigger"* ]]
+}
+
+@test "token selection: succeeds with GH_TOKEN fallback when SWARM_TOKEN absent" {
+  export FROM_STAGE="swarm:go"
+  export TO_STAGE="swarm:spec"
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:go"}]'
+  unset SWARM_TOKEN
+
+  run bash "$TRANSITION_SH"
+  [ "$status" -eq 0 ]
+
+  # Label operations still execute via GH_TOKEN fallback
+  grep -q "DELETE.*labels/swarm:go" "$GH_STUB_LOG"
+  grep -q "labels\[\]=swarm:spec" "$GH_STUB_LOG" || \
+    grep -q "POST.*labels.*swarm:spec" "$GH_STUB_LOG"
 }
