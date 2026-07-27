@@ -5,6 +5,11 @@
 set -euo pipefail
 
 LOG="${GH_STUB_LOG:-/tmp/gh-stub.log}"
+# Summary line: single-line record with safe TOKEN_SOURCE marker (no body expansion).
+# Uses "gh-summary" prefix so existing grep -c "^gh api" counts stay correct.
+# _GH_TOKEN_SOURCE is set to "swarm" or "default" by the engine's env-prefix.
+printf 'gh-summary %s%s TOKEN_SOURCE=%s\n' "${1:-}" "${2:+ $2}" "${_GH_TOKEN_SOURCE:-default}" >> "$LOG"
+# Full invocation line (may be multi-line when --body contains newlines).
 echo "gh $*" >> "$LOG"
 
 # ── gh pr create ─────────────────────────────────────────────────────────────
