@@ -304,44 +304,6 @@ jobs:
         run: |
           printf 'dry-run: would close issue #%s\n' "$ISSUE_NUMBER"
 
-      - name: Build notify event
-        id: notify-event
-        env:
-          ISSUE_NUMBER: ${{ inputs.issue }}
-          PR_NUMBER: ${{ inputs.pr }}
-          VERDICT: ${{ needs.agent.outputs.verdict }}
-          SUMMARY: ${{ needs.agent.outputs.summary }}
-        run: |
-          event_json="$(jq -n \
-            --arg event "docs-complete" \
-            --arg repo "${GITHUB_REPOSITORY}" \
-            --argjson issue "${ISSUE_NUMBER}" \
-            --argjson pr "${PR_NUMBER}" \
-            --arg stage_from "swarm:docs" \
-            --arg stage_to "swarm:done" \
-            --arg actor "${GITHUB_ACTOR}" \
-            --arg url "https://github.com/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}" \
-            --arg summary "${SUMMARY}" \
-            '{event: $event, repo: $repo, issue: $issue, pr: $pr,
-              stage_from: $stage_from, stage_to: $stage_to,
-              actor: $actor, url: $url, summary: $summary}')"
-          printf '%s\n' "$event_json" > /tmp/swarm-notify-event.json
-
-      - name: Notify
-        if: inputs.dry-run == false
-        uses: ./.swarm-engine/actions/notify
-        with:
-          event-file: /tmp/swarm-notify-event.json
-          enabled-sinks: ${{ inputs.enabled-sinks }}
-          buzz-channel: ${{ inputs.buzz-channel }}
-
-      - name: Dry-run log (notify)
-        if: inputs.dry-run == true
-        env:
-          ISSUE_NUMBER: ${{ inputs.issue }}
-        run: |
-          printf 'dry-run: would notify sinks for issue #%s docs-complete event\n' "$ISSUE_NUMBER"
-
       - name: Unexpected verdict (fail)
         if: |
           needs.agent.outputs.verdict != 'done' &&

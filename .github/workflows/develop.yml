@@ -147,11 +147,6 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       SWARM_LLM_MODEL: ${{ inputs.model }}
-      SWARM_SLACK_WEBHOOK: ${{ secrets.SWARM_SLACK_WEBHOOK }}
-      SWARM_DISCORD_WEBHOOK: ${{ secrets.SWARM_DISCORD_WEBHOOK }}
-      SWARM_TEAMS_WEBHOOK: ${{ secrets.SWARM_TEAMS_WEBHOOK }}
-      SWARM_BUZZ_RELAY_URL: ${{ secrets.SWARM_BUZZ_RELAY_URL }}
-      SWARM_BUZZ_PRIVATE_KEY: ${{ secrets.SWARM_BUZZ_PRIVATE_KEY }}
 
     steps:
       - name: Checkout
@@ -167,12 +162,6 @@ jobs:
           ref: ${{ inputs.engine-ref }}
           path: .swarm-engine
           persist-credentials: false
-
-      - name: Load and validate config
-        id: config
-        uses: ./.swarm-engine/actions/load-config
-        with:
-          config-file: swarm.config.yml
 
       - name: Fetch issue + spec context
         id: ctx
@@ -251,11 +240,13 @@ jobs:
       # ── develop engine (always runs, both adapters) ────────────────────────
       # For headless:            engine does git config, branch, spec write,
       #                          adapter invocation, commit, push, PR create,
-      #                          PR verify, and transition.
+      #                          PR verify.  Transition is handled by the notify
+      #                          job below so sink secrets never share a job with
+      #                          the LLM adapter (security: issue #40 class).
       # For claude-code-action:  action edits working tree (file-edit mode,
       #                          create_pull_request=false); engine then runs
-      #                          the same commit/push/PR-create/verify/transition
-      #                          path as headless — engine-owns-everything.
+      #                          the same commit/push/PR-create/verify path as
+      #                          headless — engine-owns-everything.
       - name: Run develop engine
         uses: ./.swarm-engine/actions/develop-run
         with:
@@ -268,5 +259,57 @@ jobs:
           model: ${{ inputs.model }}
           maintainer: ${{ inputs.maintainer }}
           token: ${{ secrets.SWARM_TOKEN }}
+
+  # ── Notify: transition + sink fan-out (separate job — no LLM adapter) ───────
+  # Sink secrets are scoped to this job only so the LLM adapter steps above
+  # cannot read SWARM_BUZZ_PRIVATE_KEY or the webhook URLs (issue #40 class).
+  # Only runs when the develop job succeeds (PR created and verified).
+  notify:
+    name: Transition and notify
+    needs: develop
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SWARM_SLACK_WEBHOOK: ${{ secrets.SWARM_SLACK_WEBHOOK }}
+      SWARM_DISCORD_WEBHOOK: ${{ secrets.SWARM_DISCORD_WEBHOOK }}
+      SWARM_TEAMS_WEBHOOK: ${{ secrets.SWARM_TEAMS_WEBHOOK }}
+      SWARM_BUZZ_RELAY_URL: ${{ secrets.SWARM_BUZZ_RELAY_URL }}
+      SWARM_BUZZ_PRIVATE_KEY: ${{ secrets.SWARM_BUZZ_PRIVATE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Checkout engine
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.engine-repo }}
+          ref: ${{ inputs.engine-ref }}
+          path: .swarm-engine
+          persist-credentials: false
+
+      - name: Load and validate config
+        id: config
+        uses: ./.swarm-engine/actions/load-config
+        with:
+          config-file: swarm.config.yml
+
+      - name: Transition swarm:develop → swarm:qa
+        if: inputs.dry-run == false
+        uses: ./.swarm-engine/actions/transition
+        with:
+          issue-number: ${{ inputs.issue }}
+          from-stage: swarm:develop
+          to-stage: swarm:qa
+          token: ${{ secrets.SWARM_TOKEN }}
           enabled-sinks: ${{ steps.config.outputs.enabled-sinks }}
           buzz-channel: ${{ steps.config.outputs.notify-buzz-channel }}
+
+      - name: Dry-run log (transition)
+        if: inputs.dry-run == true
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          printf 'dry-run: would transition issue #%s from swarm:develop to swarm:qa\n' "$ISSUE_NUMBER"

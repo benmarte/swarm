@@ -181,7 +181,10 @@ if [ "$next_n" -eq "$ATTEMPT_LIMIT" ]; then
 
   if [ -n "${ENABLED_SINKS:-}" ] && [ -f "$NOTIFY_SCRIPT" ]; then
     echo "bump-attempts: notify: fanning out to sinks: ${ENABLED_SINKS}"
-    EVENT_FILE="$_escalation_event_file" bash "$NOTIFY_SCRIPT"
+    # Notify failures must NEVER block the pipeline — log a warning and continue.
+    if ! EVENT_FILE="$_escalation_event_file" bash "$NOTIFY_SCRIPT"; then
+      echo "bump-attempts: WARNING: notify fan-out failed (sinks: ${ENABLED_SINKS}) — escalation complete, notifications not delivered" >&2
+    fi
   else
     echo "bump-attempts: notify: no sinks configured (ENABLED_SINKS not set)"
   fi

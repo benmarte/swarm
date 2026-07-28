@@ -317,6 +317,31 @@ teardown() {
   rm -f "$NAK_LOG"
 }
 
+@test "e2e: failing notify sink does not fail transition — warning emitted, exit 0" {
+  export FROM_STAGE="swarm:go"
+  export TO_STAGE="swarm:spec"
+  export GH_STUB_LABELS_JSON='[{"name":"swarm:go"}]'
+  export POST_COMMENT="false"
+  export ENABLED_SINKS="slack"
+
+  # Override NOTIFY_SCRIPT with a stub that always fails
+  FAILING_NOTIFY="$(mktemp)"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$FAILING_NOTIFY"
+  chmod +x "$FAILING_NOTIFY"
+  export NOTIFY_SCRIPT="$FAILING_NOTIFY"
+
+  run bash "$TRANSITION_SH"
+
+  rm -f "$FAILING_NOTIFY"
+
+  # Transition must succeed despite notify failure
+  [ "$status" -eq 0 ]
+
+  # Warning must be emitted naming the failing sinks
+  [[ "$output" == *"WARNING"* ]]
+  [[ "$output" == *"notify"*"failed"* ]] || [[ "$output" == *"notifications not delivered"* ]]
+}
+
 @test "e2e: ENABLED_SINKS empty disables notify fan-out (no nak call)" {
   export FROM_STAGE="swarm:go"
   export TO_STAGE="swarm:spec"

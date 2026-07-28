@@ -1527,27 +1527,34 @@ PYEOF
   [ "$status" -eq 0 ]
 }
 
-@test "develop.yml: develop-run invocation passes enabled-sinks and buzz-channel" {
+@test "develop.yml: notify job transition invocation passes enabled-sinks and buzz-channel" {
   run python3 - "$DEVELOP" <<'PYEOF'
 import sys, re
 
 with open(sys.argv[1]) as fh:
     content = fh.read()
 
+# Extract notify job section only (sink secrets must live here, not in develop job)
+parts = re.split(r'\n  notify:', content, maxsplit=1)
+if len(parts) < 2:
+    print("ERROR: notify job not found in develop.yml")
+    sys.exit(1)
+notify_section = parts[1]
+
 uses_blocks = re.findall(
-    r'uses:\s*\./.swarm-engine/actions/develop-run.*?(?=uses:|steps:|jobs:|\Z)',
-    content, re.DOTALL
+    r'uses:\s*\./.swarm-engine/actions/transition.*?(?=uses:|steps:|jobs:|\Z)',
+    notify_section, re.DOTALL
 )
 if not uses_blocks:
-    print("No develop-run uses blocks found")
+    print("No transition uses blocks found in notify job")
     sys.exit(1)
 
 for block in uses_blocks:
     if 'enabled-sinks:' not in block:
-        print(f"ERROR: develop-run invocation missing enabled-sinks: input")
+        print("ERROR: notify job transition invocation missing enabled-sinks: input")
         sys.exit(1)
     if 'buzz-channel:' not in block:
-        print(f"ERROR: develop-run invocation missing buzz-channel: input")
+        print("ERROR: notify job transition invocation missing buzz-channel: input")
         sys.exit(1)
 
 sys.exit(0)
@@ -1605,5 +1612,141 @@ PYEOF
 
 @test "load-config step present in pr-gates merge job" {
   run grep -q "load-config" "$PR_GATES"
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Issue #53 security / reviewer fixes
+# ---------------------------------------------------------------------------
+
+@test "develop.yml: develop job env has NO sink secrets (LLM adapter isolation)" {
+  run python3 - "$DEVELOP" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# Extract the develop job section: everything before the notify job definition
+# (the "  notify:" line at 2-space indentation marks the job boundary)
+develop_section = re.split(r'\n  notify:', content, maxsplit=1)[0]
+
+# Check that no YAML secret reference for sink secrets appears in the develop section.
+# Use the GitHub Actions expression pattern to avoid false-positives from comments.
+sink_secrets = [
+    "SWARM_SLACK_WEBHOOK",
+    "SWARM_DISCORD_WEBHOOK",
+    "SWARM_TEAMS_WEBHOOK",
+    "SWARM_BUZZ_RELAY_URL",
+    "SWARM_BUZZ_PRIVATE_KEY",
+]
+for secret in sink_secrets:
+    pattern = "secrets." + secret
+    if pattern in develop_section:
+        print(f"ERROR: secrets.{secret} referenced in develop job — must be in notify job only")
+        sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "develop.yml: notify job env has all five sink secrets" {
+  run python3 - "$DEVELOP" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# Extract the notify job section
+parts = re.split(r'\n  notify:', content, maxsplit=1)
+if len(parts) < 2:
+    print("ERROR: notify job not found in develop.yml")
+    sys.exit(1)
+notify_section = parts[1]
+
+sink_secrets = [
+    "SWARM_SLACK_WEBHOOK",
+    "SWARM_DISCORD_WEBHOOK",
+    "SWARM_TEAMS_WEBHOOK",
+    "SWARM_BUZZ_RELAY_URL",
+    "SWARM_BUZZ_PRIVATE_KEY",
+]
+for secret in sink_secrets:
+    if secret + ":" not in notify_section:
+        print(f"ERROR: {secret} missing from develop.yml notify job env")
+        sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "develop.yml: notify job needs develop" {
+  run python3 - "$DEVELOP" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+parts = re.split(r'\n  notify:', content, maxsplit=1)
+if len(parts) < 2:
+    print("ERROR: notify job not found in develop.yml")
+    sys.exit(1)
+notify_section = parts[1][:500]  # check first 500 chars of notify job
+
+if "needs: develop" not in notify_section:
+    print("ERROR: notify job must declare needs: develop")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "transition.sh: mktemp uses portable template with .json suffix and trap cleanup" {
+  TRANSITION_SH="$REPO_ROOT/actions/transition/transition.sh"
+
+  # Verify portable mktemp pattern (no racy $(mktemp).json)
+  run grep -q 'mktemp.*swarm-event' "$TRANSITION_SH"
+  [ "$status" -eq 0 ]
+
+  # Verify .json suffix on the EVENT_FILE variable assignment
+  run grep -q 'EVENT_FILE=.*\.json' "$TRANSITION_SH"
+  [ "$status" -eq 0 ]
+
+  # Verify trap cleanup for EVENT_FILE
+  run grep -q "trap.*rm.*EVENT_FILE.*EXIT" "$TRANSITION_SH"
+  [ "$status" -eq 0 ]
+}
+
+@test "docs.yml: glue job has no separate Notify step (transition fan-out handles it)" {
+  # Verify the explicit Notify step calling actions/notify was removed from glue job;
+  # the transition action's internal fan-out is the single notification path.
+  run python3 - "$DOCS" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# Get the glue job section
+parts = re.split(r'\n  glue:', content, maxsplit=1)
+if len(parts) < 2:
+    print("ERROR: glue job not found in docs.yml")
+    sys.exit(1)
+glue_section = parts[1]
+
+# The explicit actions/notify call must be gone (transition handles it)
+if "actions/notify" in glue_section:
+    print("ERROR: docs.yml glue job still has an explicit actions/notify step")
+    print("  Remove it — transition action fan-out is the single notification path")
+    sys.exit(1)
+
+# But the transition action must still be present
+if "actions/transition" not in glue_section:
+    print("ERROR: docs.yml glue job is missing the transition step")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
   [ "$status" -eq 0 ]
 }
