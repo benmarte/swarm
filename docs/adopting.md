@@ -234,19 +234,81 @@ The `buzz_channel` value is the NIP-29 channel UUID — it is behavior config, n
 
 All four sinks are opt-in. Enable each by seeding its secret(s) and uncommenting the matching key in `swarm.config.yml notify:`.
 
-**Slack / Discord / Teams (outbound webhooks)**
+**Slack — webhook mode** (simplest)
 
-1. Create an incoming webhook URL in your Slack workspace, Discord server, or Teams channel.
-2. Seed the webhook URL as a GitHub Secret:
+1. Create an incoming webhook URL in your Slack workspace.
+2. Seed it as a GitHub Secret and enable the sink in config:
    ```bash
-   gh secret set SWARM_SLACK_WEBHOOK   --repo owner/your-consumer-repo   # Slack
-   gh secret set SWARM_DISCORD_WEBHOOK --repo owner/your-consumer-repo   # Discord
-   gh secret set SWARM_TEAMS_WEBHOOK   --repo owner/your-consumer-repo   # Teams
+   gh secret set SWARM_SLACK_WEBHOOK --repo owner/your-consumer-repo
    ```
-3. Uncomment the relevant line in `swarm.config.yml`:
    ```yaml
+   # swarm.config.yml
    notify:
      slack: true
+   ```
+
+**Slack — bot-token mode** (for existing Slack bots, e.g. Hermes users)
+
+Use this when you already have a Slack bot app and want swarm to post through it.
+The bot posts as its own identity — configure a meaningful display name in your Slack app settings.
+Webhook mode wins when both `SWARM_SLACK_WEBHOOK` and `SWARM_SLACK_BOT_TOKEN` are set.
+
+1. In your Slack app's OAuth & Permissions settings, add the `chat:write` scope and install the app to your workspace.
+2. Copy the Bot User OAuth Token (`xoxb-…`).
+3. Find the target channel's ID (right-click the channel in Slack → Copy Link — the ID is the trailing segment like `C0123456789`).
+4. Seed the token as a GitHub Secret and add the channel ID to config:
+   ```bash
+   gh secret set SWARM_SLACK_BOT_TOKEN --repo owner/your-consumer-repo
+   ```
+   ```yaml
+   # swarm.config.yml
+   notify:
+     slack_channel: C0123456789   # non-secret channel ID
+   ```
+   Setting `slack_channel` is sufficient to enable the sink — you do not also need `slack: true`.
+
+**Discord — webhook mode** (simplest)
+
+1. Create an incoming webhook in your Discord server: Channel Settings → Integrations → Webhooks → New Webhook.
+2. Seed it and enable the sink:
+   ```bash
+   gh secret set SWARM_DISCORD_WEBHOOK --repo owner/your-consumer-repo
+   ```
+   ```yaml
+   notify:
+     discord: true
+   ```
+
+**Discord — bot-token mode** (for existing Discord bots, e.g. Hermes users)
+
+Use this when you already have a Discord bot application and want swarm to post through it.
+The bot posts as its own identity — set a meaningful username in your Discord Developer Portal application settings.
+Webhook mode wins when both `SWARM_DISCORD_WEBHOOK` and `SWARM_DISCORD_BOT_TOKEN` are set.
+
+1. In your Discord Developer Portal, enable the Message Content Intent and invite the bot to your server with the `Send Messages` permission.
+2. Copy the Bot Token from the Bot section.
+3. Find the target channel's ID (right-click the channel in Discord → Copy Channel ID — requires Developer Mode).
+4. Seed the token as a GitHub Secret and add the channel ID to config:
+   ```bash
+   gh secret set SWARM_DISCORD_BOT_TOKEN --repo owner/your-consumer-repo
+   ```
+   ```yaml
+   # swarm.config.yml
+   notify:
+     discord_channel: "123456789012345678"   # non-secret channel ID (quote to preserve as string)
+   ```
+   Setting `discord_channel` is sufficient to enable the sink — you do not also need `discord: true`.
+
+**Teams (outbound webhook)**
+
+1. Create an incoming webhook in your Teams channel: Channel → (⋯) → Connectors → Incoming Webhook → Configure.
+2. Seed it and enable the sink:
+   ```bash
+   gh secret set SWARM_TEAMS_WEBHOOK --repo owner/your-consumer-repo
+   ```
+   ```yaml
+   notify:
+     teams: true
    ```
 
 **Buzz / Nostr — NIP-29 relay**

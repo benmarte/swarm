@@ -9,6 +9,7 @@
 #
 # Exports the following GITHUB_OUTPUT keys (random delimiter for multiline safety):
 #   notify-slack, notify-discord, notify-teams, notify-buzz-channel,
+#   notify-slack-channel, notify-discord-channel,
 #   enabled-sinks, runner-label, develop-adapter, sweeper-schedule
 #
 # On invalid config: prints ajv errors to stderr and exits 1.
@@ -120,7 +121,9 @@ export_output() {
 # because jq's // operator returns the fallback for both null AND false,
 # causing YAML boolean `false` values to be silently dropped.
 notify_slack="$(jq -r '.notify.slack | if . == null then "" else tostring end' "$_config_json")"
+notify_slack_channel="$(jq -r '.notify.slack_channel | if . == null then "" else tostring end' "$_config_json")"
 notify_discord="$(jq -r '.notify.discord | if . == null then "" else tostring end' "$_config_json")"
+notify_discord_channel="$(jq -r '.notify.discord_channel | if . == null then "" else tostring end' "$_config_json")"
 notify_teams="$(jq -r '.notify.teams | if . == null then "" else tostring end' "$_config_json")"
 notify_buzz_channel="$(jq -r '.notify.buzz_channel | if . == null then "" else tostring end' "$_config_json")"
 runner_label="$(jq -r '.runner.label | if . == null then "" else tostring end' "$_config_json")"
@@ -130,15 +133,17 @@ llm_base_url="$(jq -r '.SWARM_LLM_BASE_URL | if . == null then "" else tostring 
 # comments.enabled: absent → default "true"; explicit false → "false"
 comments_enabled="$(jq -r '.comments.enabled | if . == null then "true" else tostring end' "$_config_json")"
 
-# ── Compute enabled-sinks from notify booleans + buzz_channel presence ─────────
+# ── Compute enabled-sinks from notify booleans + channel/buzz_channel presence ──
 # Build a comma-separated list of sinks whose config is live:
-#   slack/discord/teams: boolean true in config → include the sink name
-#   buzz: buzz_channel non-empty → include 'buzz'
+#   slack:   boolean true OR slack_channel non-empty → include 'slack'
+#   discord: boolean true OR discord_channel non-empty → include 'discord'
+#   teams:   boolean true in config → include 'teams'
+#   buzz:    buzz_channel non-empty → include 'buzz'
 enabled_sinks=""
-if [ "$notify_slack" = "true" ]; then
+if [ "$notify_slack" = "true" ] || [ -n "$notify_slack_channel" ]; then
   enabled_sinks="${enabled_sinks:+$enabled_sinks,}slack"
 fi
-if [ "$notify_discord" = "true" ]; then
+if [ "$notify_discord" = "true" ] || [ -n "$notify_discord_channel" ]; then
   enabled_sinks="${enabled_sinks:+$enabled_sinks,}discord"
 fi
 if [ "$notify_teams" = "true" ]; then
@@ -148,11 +153,13 @@ if [ -n "$notify_buzz_channel" ]; then
   enabled_sinks="${enabled_sinks:+$enabled_sinks,}buzz"
 fi
 
-export_output "notify-slack"       "$notify_slack"
-export_output "notify-discord"     "$notify_discord"
-export_output "notify-teams"       "$notify_teams"
-export_output "notify-buzz-channel" "$notify_buzz_channel"
-export_output "enabled-sinks"      "$enabled_sinks"
+export_output "notify-slack"          "$notify_slack"
+export_output "notify-slack-channel"  "$notify_slack_channel"
+export_output "notify-discord"        "$notify_discord"
+export_output "notify-discord-channel" "$notify_discord_channel"
+export_output "notify-teams"          "$notify_teams"
+export_output "notify-buzz-channel"   "$notify_buzz_channel"
+export_output "enabled-sinks"         "$enabled_sinks"
 export_output "runner-label"       "$runner_label"
 export_output "develop-adapter"    "$develop_adapter"
 export_output "sweeper-schedule"   "$sweeper_schedule"
@@ -161,7 +168,9 @@ export_output "comments-enabled"   "$comments_enabled"
 
 echo "load-config: exported outputs:"
 echo "  notify-slack=$notify_slack"
+echo "  notify-slack-channel=$notify_slack_channel"
 echo "  notify-discord=$notify_discord"
+echo "  notify-discord-channel=$notify_discord_channel"
 echo "  notify-teams=$notify_teams"
 echo "  notify-buzz-channel=$notify_buzz_channel"
 echo "  enabled-sinks=$enabled_sinks"
