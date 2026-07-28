@@ -51,7 +51,7 @@ teardown() {
 @test "render-comment.sh: validator-verdict golden render from fixture outcome" {
   local fixture="$FIXTURES/validator-outcome.json"
   local template="$TEMPLATES/validator-verdict.md"
-  local body_file
+  # not `local`: teardown must be able to see this to clean it up (#77)
   body_file="$(mktemp)"
 
   local verdict summary details
@@ -75,7 +75,7 @@ teardown() {
 
 @test "render-comment.sh: review-signoff golden render" {
   local template="$TEMPLATES/review-signoff.md"
-  local body_file
+  # not `local`: teardown must be able to see this to clean it up (#77)
   body_file="$(mktemp)"
 
   HEADER="**swarm reviewer**" \
@@ -93,7 +93,7 @@ teardown() {
 
 @test "render-comment.sh: docs-posted golden render" {
   local template="$TEMPLATES/docs-posted.md"
-  local body_file
+  # not `local`: teardown must be able to see this to clean it up (#77)
   body_file="$(mktemp)"
 
   HEADER="**swarm docs**" \
@@ -110,7 +110,7 @@ teardown() {
 
 @test "render-comment.sh: issue-closed golden render" {
   local template="$TEMPLATES/issue-closed.md"
-  local body_file
+  # not `local`: teardown must be able to see this to clean it up (#77)
   body_file="$(mktemp)"
 
   HEADER="**swarm**" \
@@ -127,7 +127,7 @@ teardown() {
 
 @test "render-comment.sh: blocked golden render" {
   local template="$TEMPLATES/blocked.md"
-  local body_file
+  # not `local`: teardown must be able to see this to clean it up (#77)
   body_file="$(mktemp)"
 
   HEADER="**swarm security**" \
@@ -149,7 +149,7 @@ teardown() {
 @test "render-comment.sh: backticks in evidence do not execute as shell code" {
   local fixture="$FIXTURES/hostile-outcome.json"
   local template="$TEMPLATES/validator-verdict.md"
-  local body_file
+  # not `local`: teardown must be able to see this to clean it up (#77)
   body_file="$(mktemp)"
 
   local verdict summary details
@@ -173,7 +173,7 @@ teardown() {
 
 @test "render-comment.sh: dollar-brace injection in evidence is inert" {
   local template="$TEMPLATES/validator-verdict.md"
-  local body_file
+  # not `local`: teardown must be able to see this to clean it up (#77)
   body_file="$(mktemp)"
 
   # Attempt to inject a shell variable expansion via SUMMARY
@@ -200,7 +200,7 @@ teardown() {
   # text must appear inline within a bullet — not as a freestanding line.
   local fixture="$FIXTURES/hostile-outcome.json"
   local template="$TEMPLATES/validator-verdict.md"
-  local body_file
+  # not `local`: teardown must be able to see this to clean it up (#77)
   body_file="$(mktemp)"
 
   local verdict summary details
@@ -248,7 +248,7 @@ teardown() {
 }
 
 @test "render-comment.sh: missing template exits non-zero with clear message" {
-  local body_file
+  # not `local`: teardown must be able to see this to clean it up (#77)
   body_file="$(mktemp)"
 
   run bash "$RENDER_SH" "/nonexistent/template.md" "$body_file"
@@ -258,7 +258,7 @@ teardown() {
 
 @test "render-comment.sh: output written to temp path leaves repo tree clean" {
   local template="$TEMPLATES/validator-verdict.md"
-  local body_file
+  # not `local`: teardown must be able to see this to clean it up (#77)
   body_file="$(mktemp)"
 
   HEADER="**swarm validator**" \
