@@ -25,6 +25,8 @@ Secrets are read from the job environment (`env:` in the calling workflow). The 
 
 Buzz is a Nostr/NIP-29 relay, not an HTTP webhook. `adapters/buzz.sh` publishes a signed `kind:9` event tagged `["h", <channel-uuid>]` using the `nak` CLI (`nak event --auth`). `nak` handles NIP-42 AUTH challenges automatically. The runner must have `nak` on `PATH` (e.g. install via `brew install nak` or add a `go install` step before this action).
 
+**One-time channel setup (NIP-29):** the bot keypair must be admitted as a group member before it can post — without membership the relay returns `restricted: not a member`. Add the bot via a `kind:9000` event signed by a group admin key. Additionally, publish a `kind:0` profile event for the bot so it appears by name in the relay's member picker (otherwise it shows as an opaque hex pubkey). See `docs/adopting.md` → "Enabling notification sinks" for the full procedure.
+
 ## Loud-failure semantics
 
 A missing required secret for a configured sink is a **hard job failure**. Partial delivery is not attempted — the adapter exits non-zero and the job fails loudly so the misconfiguration is visible immediately. Sinks not listed in `enabled-sinks` are silently skipped.

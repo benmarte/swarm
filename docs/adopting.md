@@ -202,6 +202,69 @@ The `buzz_channel` value is the NIP-29 channel UUID — it is behavior config, n
 
 ---
 
+### Enabling notification sinks (optional)
+
+All four sinks are opt-in. Enable each by seeding its secret(s) and uncommenting the matching key in `swarm.config.yml notify:`.
+
+**Slack / Discord / Teams (outbound webhooks)**
+
+1. Create an incoming webhook URL in your Slack workspace, Discord server, or Teams channel.
+2. Seed the webhook URL as a GitHub Secret:
+   ```bash
+   gh secret set SWARM_SLACK_WEBHOOK   --repo owner/your-consumer-repo   # Slack
+   gh secret set SWARM_DISCORD_WEBHOOK --repo owner/your-consumer-repo   # Discord
+   gh secret set SWARM_TEAMS_WEBHOOK   --repo owner/your-consumer-repo   # Teams
+   ```
+3. Uncomment the relevant line in `swarm.config.yml`:
+   ```yaml
+   notify:
+     slack: true
+   ```
+
+**Buzz / Nostr — NIP-29 relay**
+
+Buzz is not an HTTP webhook. `buzz.sh` publishes a signed Nostr `kind:9` event to a NIP-29 relay using the `nak` CLI. NIP-29 groups enforce group membership — the bot keypair must be admitted to the channel before it can post, and it should have a published `kind:0` (profile) event so it appears by name in the relay's user picker when you manage membership.
+
+1. **Install `nak` on the self-hosted runner** — the `nak` binary must be on `$PATH` for the runner user (see Prerequisites). Verify with `which nak`.
+
+2. **Generate a Nostr keypair for the bot.**
+   ```bash
+   nak key generate          # prints the hex private key — keep it secret
+   nak key public <hex-key>  # prints the corresponding public key
+   ```
+
+3. **Publish a `kind:0` profile for the bot.** Without a profile event the bot's pubkey appears as an opaque hex string in the NIP-29 member picker, making it hard to identify when adding it to the channel.
+   ```bash
+   nak event --kind 0 \
+     --content '{"name":"swarm-bot","about":"Swarm pipeline notifications"}' \
+     --sec <bot-private-key-hex> \
+     wss://your-relay.example.com
+   ```
+
+4. **Add the bot as a channel member.** NIP-29 relays require group membership before accepting posts from a key. Admission is via a `kind:9000` event signed by a group admin. Use your relay's admin UI or `nak` directly:
+   ```bash
+   nak event --kind 9000 \
+     -t h <channel-uuid> \
+     -t p <bot-pubkey-hex> \
+     --sec <admin-private-key-hex> \
+     wss://your-relay.example.com
+   ```
+   Without this step the relay will reject `kind:9` posts from the bot with a `restricted: not a member` error.
+
+5. **Seed the bot credentials as GitHub Secrets.**
+   ```bash
+   gh secret set SWARM_BUZZ_RELAY_URL   --repo owner/your-consumer-repo   # wss://... relay URL
+   gh secret set SWARM_BUZZ_PRIVATE_KEY --repo owner/your-consumer-repo   # hex private key (step 2)
+   ```
+
+6. **Set `buzz_channel` in `swarm.config.yml`** (not a secret — it is the channel UUID, not a credential):
+   ```yaml
+   notify:
+     buzz_channel: "your-nostr-channel-uuid-here"
+   ```
+
+---
+
 ## Step 5 — Add the caller workflow
 
 Create `.github/workflows/swarm.yml` in your consumer repo. This is the thin wrapper that pins swarm at `@v1` and wires triggers to reusable workflows:
