@@ -17,6 +17,8 @@ setup() {
   CURL_STUB_LOG="$(mktemp)"
   export CURL_BODY_LOG
   CURL_BODY_LOG="$(mktemp)"
+  export CURL_HEADER_LOG
+  CURL_HEADER_LOG="$(mktemp)"
   export NAK_LOG
   NAK_LOG="$(mktemp)"
   export NAK_QUEUE
@@ -35,7 +37,7 @@ setup() {
 }
 
 teardown() {
-  rm -f "$CURL_STUB_LOG" "$CURL_BODY_LOG" "$NAK_LOG" "$NAK_QUEUE"
+  rm -f "$CURL_STUB_LOG" "$CURL_BODY_LOG" "$CURL_HEADER_LOG" "$NAK_LOG" "$NAK_QUEUE"
 }
 
 # =============================================================================
@@ -140,12 +142,16 @@ teardown() {
   echo "$body" | jq -e ".blocks[] | select(.accessory.url == \"$url\")" > /dev/null
 }
 
-@test "slack adapter: exits 1 when SWARM_SLACK_WEBHOOK not set" {
+@test "slack adapter: exits 1 when neither webhook nor bot-token configured" {
   unset SWARM_SLACK_WEBHOOK
+  unset SWARM_SLACK_BOT_TOKEN
+  unset SLACK_CHANNEL
 
   run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"SWARM_SLACK_WEBHOOK not set"* ]]
+  # Must name both options so users know what to configure
+  [[ "$output" == *"SWARM_SLACK_WEBHOOK"* ]]
+  [[ "$output" == *"SWARM_SLACK_BOT_TOKEN"* ]]
 }
 
 # =============================================================================
@@ -201,12 +207,16 @@ teardown() {
   echo "$body" | jq -e ".embeds[0].url == \"$url\"" > /dev/null
 }
 
-@test "discord adapter: exits 1 when SWARM_DISCORD_WEBHOOK not set" {
+@test "discord adapter: exits 1 when neither webhook nor bot-token configured" {
   unset SWARM_DISCORD_WEBHOOK
+  unset SWARM_DISCORD_BOT_TOKEN
+  unset DISCORD_CHANNEL
 
   run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"SWARM_DISCORD_WEBHOOK not set"* ]]
+  # Must name both options so users know what to configure
+  [[ "$output" == *"SWARM_DISCORD_WEBHOOK"* ]]
+  [[ "$output" == *"SWARM_DISCORD_BOT_TOKEN"* ]]
 }
 
 # =============================================================================
@@ -359,5 +369,398 @@ teardown() {
   echo "fail" > "$NAK_QUEUE"
 
   run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+}
+
+# =============================================================================
+# adapters/slack.sh — bot-token mode golden payload
+# =============================================================================
+
+@test "slack adapter: bot-token mode posts to chat.postMessage URL" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-bot-token-value"
+  export SLACK_CHANNEL="C0TEST1234"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # Must post to the Slack API endpoint, not a webhook URL
+  grep -q "https://slack.com/api/chat.postMessage" "$CURL_STUB_LOG"
+}
+
+@test "slack adapter: bot-token mode sends Authorization header" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-bot-token-value"
+  export SLACK_CHANNEL="C0TEST1234"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # Header name must be logged (secret hygiene: value is NOT asserted)
+  grep -q "Authorization" "$CURL_HEADER_LOG"
+  # Token value must NOT appear in the script's own stdout/stderr output
+  [[ "$output" != *"xoxb-test-bot-token-value"* ]]
+}
+
+@test "slack adapter: bot-token mode payload includes channel and blocks" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-bot-token-value"
+  export SLACK_CHANNEL="C0TEST1234"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  [ -n "$body" ]
+  # Payload must include the channel ID
+  echo "$body" | jq -e ".channel == \"C0TEST1234\"" > /dev/null
+  # Payload must include blocks array
+  echo "$body" | jq -e '.blocks | length > 0' > /dev/null
+}
+
+@test "slack adapter: bot-token mode payload contains event fields" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-bot-token-value"
+  export SLACK_CHANNEL="C0TEST1234"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  payload_text="$(echo "$body" | jq -r 'tostring')"
+
+  repo="$(jq -r '.repo' "$FIXTURE_EVENT")"
+  issue="$(jq -r '.issue | tostring' "$FIXTURE_EVENT")"
+  actor="$(jq -r '.actor' "$FIXTURE_EVENT")"
+
+  [[ "$payload_text" == *"$repo"* ]]
+  [[ "$payload_text" == *"$issue"* ]]
+  [[ "$payload_text" == *"$actor"* ]]
+}
+
+@test "slack adapter: webhook wins when both webhook and bot-token are set" {
+  export SWARM_SLACK_WEBHOOK="https://hooks.slack.com/services/fake/webhook"
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-bot-token-value"
+  export SLACK_CHANNEL="C0TEST1234"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # Must post to webhook URL, not the API endpoint
+  grep -q "$SWARM_SLACK_WEBHOOK" "$CURL_STUB_LOG"
+  ! grep -q "chat.postMessage" "$CURL_STUB_LOG"
+}
+
+@test "slack adapter: bot-token mode with ok:false response fails loudly" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-bot-token-value"
+  export SLACK_CHANNEL="C0TEST1234"
+  # Slack returns HTTP 200 even on error; adapter must detect ok:false
+  export CURL_STUB_RESPONSE='{"ok":false,"error":"channel_not_found"}'
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ok:false"* ]]
+  [[ "$output" == *"channel_not_found"* ]]
+}
+
+@test "slack adapter: bot-token mode exits 1 when SLACK_CHANNEL not set" {
+  unset SWARM_SLACK_WEBHOOK
+  unset SLACK_CHANNEL
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-bot-token-value"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  # Should name both options since no complete mode is configured
+  [[ "$output" == *"SWARM_SLACK_WEBHOOK"* ]] || [[ "$output" == *"SWARM_SLACK_BOT_TOKEN"* ]]
+}
+
+# =============================================================================
+# adapters/discord.sh — bot-token mode golden payload
+# =============================================================================
+
+@test "discord adapter: bot-token mode posts to channels API URL" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.discord.token"
+  export DISCORD_CHANNEL="123456789012345678"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # Must post to the Discord channels API endpoint
+  grep -q "https://discord.com/api/v10/channels/123456789012345678/messages" "$CURL_STUB_LOG"
+}
+
+@test "discord adapter: bot-token mode sends Authorization header" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.discord.token"
+  export DISCORD_CHANNEL="123456789012345678"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # Header name must be logged (secret hygiene: value is NOT asserted)
+  grep -q "Authorization" "$CURL_HEADER_LOG"
+  # Token value must NOT appear in the script's own stdout/stderr output
+  [[ "$output" != *"Bot.test.discord.token"* ]]
+}
+
+@test "discord adapter: bot-token mode payload has embeds array" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.discord.token"
+  export DISCORD_CHANNEL="123456789012345678"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  [ -n "$body" ]
+  echo "$body" | jq -e '.embeds | length > 0' > /dev/null
+}
+
+@test "discord adapter: bot-token mode payload contains event fields" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.discord.token"
+  export DISCORD_CHANNEL="123456789012345678"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  payload_text="$(echo "$body" | jq -r 'tostring')"
+
+  repo="$(jq -r '.repo' "$FIXTURE_EVENT")"
+  issue="$(jq -r '.issue | tostring' "$FIXTURE_EVENT")"
+  actor="$(jq -r '.actor' "$FIXTURE_EVENT")"
+
+  [[ "$payload_text" == *"$repo"* ]]
+  [[ "$payload_text" == *"$issue"* ]]
+  [[ "$payload_text" == *"$actor"* ]]
+}
+
+@test "discord adapter: webhook wins when both webhook and bot-token are set" {
+  export SWARM_DISCORD_WEBHOOK="https://discord.com/api/webhooks/fake/webhook"
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.discord.token"
+  export DISCORD_CHANNEL="123456789012345678"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # Must post to webhook URL, not the API endpoint
+  grep -q "$SWARM_DISCORD_WEBHOOK" "$CURL_STUB_LOG"
+  ! grep -q "api/v10/channels" "$CURL_STUB_LOG"
+}
+
+@test "discord adapter: bot-token mode fails on non-2xx curl exit" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.discord.token"
+  export DISCORD_CHANNEL="123456789012345678"
+  # Stub returns non-zero to simulate HTTP 4xx/5xx (--fail exits non-zero)
+  export CURL_STUB_STATUS=22
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"non-2xx"* ]] || [[ "$output" == *"ERROR"* ]]
+}
+
+@test "discord adapter: bot-token mode exits 1 when DISCORD_CHANNEL not set" {
+  unset SWARM_DISCORD_WEBHOOK
+  unset DISCORD_CHANNEL
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.discord.token"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"SWARM_DISCORD_WEBHOOK"* ]] || [[ "$output" == *"SWARM_DISCORD_BOT_TOKEN"* ]]
+}
+
+# =============================================================================
+# load-config: enabled-sinks derivation with channel-only config
+# =============================================================================
+
+@test "load-config: slack_channel alone enables the slack sink" {
+  # A config with only slack_channel set (no boolean) should enable slack
+  _tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$_tmpdir"' EXIT
+  cat > "$_tmpdir/swarm.config.yml" <<'YAML'
+notify:
+  slack_channel: C0TEST1234
+YAML
+  export CONFIG_FILE="$_tmpdir/swarm.config.yml"
+  export GITHUB_OUTPUT="$_tmpdir/output"
+  touch "$GITHUB_OUTPUT"
+  ACTION_PATH="$REPO_ROOT/actions/load-config" \
+    GITHUB_WORKSPACE="$_tmpdir" \
+    CONFIG_FILE="$_tmpdir/swarm.config.yml" \
+    run bash "$REPO_ROOT/actions/load-config/load-config.sh"
+  [ "$status" -eq 0 ]
+  grep -q "enabled-sinks<<" "$_tmpdir/output"
+  # enabled-sinks output must include 'slack'
+  _sinks="$(grep -A1 'enabled-sinks<<' "$_tmpdir/output" | tail -1)"
+  [[ "$_sinks" == *"slack"* ]]
+}
+
+@test "load-config: discord_channel alone enables the discord sink" {
+  _tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$_tmpdir"' EXIT
+  cat > "$_tmpdir/swarm.config.yml" <<'YAML'
+notify:
+  discord_channel: "123456789012345678"
+YAML
+  export CONFIG_FILE="$_tmpdir/swarm.config.yml"
+  export GITHUB_OUTPUT="$_tmpdir/output"
+  touch "$GITHUB_OUTPUT"
+  ACTION_PATH="$REPO_ROOT/actions/load-config" \
+    GITHUB_WORKSPACE="$_tmpdir" \
+    CONFIG_FILE="$_tmpdir/swarm.config.yml" \
+    run bash "$REPO_ROOT/actions/load-config/load-config.sh"
+  [ "$status" -eq 0 ]
+  _sinks="$(grep -A1 'enabled-sinks<<' "$_tmpdir/output" | tail -1)"
+  [[ "$_sinks" == *"discord"* ]]
+}
+
+@test "load-config: slack_channel exported as notify-slack-channel output" {
+  _tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$_tmpdir"' EXIT
+  cat > "$_tmpdir/swarm.config.yml" <<'YAML'
+notify:
+  slack_channel: C0TEST1234
+YAML
+  export GITHUB_OUTPUT="$_tmpdir/output"
+  touch "$GITHUB_OUTPUT"
+  ACTION_PATH="$REPO_ROOT/actions/load-config" \
+    GITHUB_WORKSPACE="$_tmpdir" \
+    CONFIG_FILE="$_tmpdir/swarm.config.yml" \
+    run bash "$REPO_ROOT/actions/load-config/load-config.sh"
+  [ "$status" -eq 0 ]
+  grep -q "notify-slack-channel<<" "$_tmpdir/output"
+  _val="$(grep -A1 'notify-slack-channel<<' "$_tmpdir/output" | tail -1)"
+  [ "$_val" = "C0TEST1234" ]
+}
+
+@test "load-config: discord_channel exported as notify-discord-channel output" {
+  _tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$_tmpdir"' EXIT
+  cat > "$_tmpdir/swarm.config.yml" <<'YAML'
+notify:
+  discord_channel: "123456789012345678"
+YAML
+  export GITHUB_OUTPUT="$_tmpdir/output"
+  touch "$GITHUB_OUTPUT"
+  ACTION_PATH="$REPO_ROOT/actions/load-config" \
+    GITHUB_WORKSPACE="$_tmpdir" \
+    CONFIG_FILE="$_tmpdir/swarm.config.yml" \
+    run bash "$REPO_ROOT/actions/load-config/load-config.sh"
+  [ "$status" -eq 0 ]
+  grep -q "notify-discord-channel<<" "$_tmpdir/output"
+  _val="$(grep -A1 'notify-discord-channel<<' "$_tmpdir/output" | tail -1)"
+  [ "$_val" = "123456789012345678" ]
+}
+
+# =============================================================================
+# Channel ID validation — hostile values rejected before any curl call
+# =============================================================================
+
+@test "slack adapter: bot-token mode rejects channel with path-traversal characters" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-token"
+  export SLACK_CHANNEL="C123/../../evil"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"invalid"* ]] || [[ "$output" == *"ERROR"* ]]
+  # curl must NOT have been called — validation must be pre-flight
+  [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "^curl" "$CURL_STUB_LOG"
+}
+
+@test "slack adapter: bot-token mode rejects channel with dot-dot sequence" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-token"
+  export SLACK_CHANNEL="../admin"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  # curl must NOT have been called
+  [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "^curl" "$CURL_STUB_LOG"
+}
+
+@test "slack adapter: bot-token mode accepts valid alphanumeric channel ID" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-token"
+  export SLACK_CHANNEL="C0VALIDCHAN"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+  grep -q "^curl" "$CURL_STUB_LOG"
+}
+
+@test "discord adapter: bot-token mode rejects channel with path-traversal characters" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.token"
+  export DISCORD_CHANNEL="123456789012345/../../etc"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"snowflake"* ]] || [[ "$output" == *"invalid"* ]] || [[ "$output" == *"ERROR"* ]]
+  # curl must NOT have been called
+  [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "^curl" "$CURL_STUB_LOG"
+}
+
+@test "discord adapter: bot-token mode rejects non-numeric channel ID" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.token"
+  export DISCORD_CHANNEL="notanumber"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  # curl must NOT have been called
+  [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "^curl" "$CURL_STUB_LOG"
+}
+
+@test "discord adapter: bot-token mode rejects too-short numeric ID" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.token"
+  # Too short (< 17 digits) — not a valid Discord snowflake
+  export DISCORD_CHANNEL="12345"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  # curl must NOT have been called
+  [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "^curl" "$CURL_STUB_LOG"
+}
+
+@test "discord adapter: bot-token mode accepts valid 18-digit snowflake" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.token"
+  export DISCORD_CHANNEL="123456789012345678"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+  grep -q "^curl" "$CURL_STUB_LOG"
+}
+
+# =============================================================================
+# curl network failure — adapters must not report success when curl dies
+# =============================================================================
+
+@test "slack adapter: bot-token mode exits non-zero when curl fails (network error)" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-token"
+  export SLACK_CHANNEL="C0VALIDCHAN"
+  # Stub exits non-zero to simulate network failure (DNS/timeout/connection refused)
+  export CURL_STUB_STATUS=6
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"curl failed"* ]] || [[ "$output" == *"ERROR"* ]]
+}
+
+@test "discord adapter: bot-token mode exits non-zero when curl fails (network error)" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.token"
+  export DISCORD_CHANNEL="123456789012345678"
+  # Stub exits non-zero to simulate curl failure; discord uses --fail so exits non-zero
+  export CURL_STUB_STATUS=6
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
   [ "$status" -ne 0 ]
 }

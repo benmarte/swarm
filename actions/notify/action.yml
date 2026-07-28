@@ -22,6 +22,18 @@ inputs:
       notify.buzz_channel). Not a secret — this is behavior config.
     required: false
     default: ""
+  slack-channel:
+    description: >
+      Slack channel ID for bot-token mode (from swarm.config.yml
+      notify.slack_channel). Not a secret — this is behavior config.
+    required: false
+    default: ""
+  discord-channel:
+    description: >
+      Discord channel ID for bot-token mode (from swarm.config.yml
+      notify.discord_channel). Not a secret — this is behavior config.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -37,8 +49,12 @@ runs:
         EVENT_FILE: ${{ inputs.event-file }}
         ENABLED_SINKS: ${{ inputs.enabled-sinks }}
         BUZZ_CHANNEL: ${{ inputs.buzz-channel }}
+        SLACK_CHANNEL: ${{ inputs.slack-channel }}
+        DISCORD_CHANNEL: ${{ inputs.discord-channel }}
         SWARM_SLACK_WEBHOOK: ${{ env.SWARM_SLACK_WEBHOOK }}
+        SWARM_SLACK_BOT_TOKEN: ${{ env.SWARM_SLACK_BOT_TOKEN }}
         SWARM_DISCORD_WEBHOOK: ${{ env.SWARM_DISCORD_WEBHOOK }}
+        SWARM_DISCORD_BOT_TOKEN: ${{ env.SWARM_DISCORD_BOT_TOKEN }}
         SWARM_TEAMS_WEBHOOK: ${{ env.SWARM_TEAMS_WEBHOOK }}
         SWARM_BUZZ_RELAY_URL: ${{ env.SWARM_BUZZ_RELAY_URL }}
         SWARM_BUZZ_PRIVATE_KEY: ${{ env.SWARM_BUZZ_PRIVATE_KEY }}

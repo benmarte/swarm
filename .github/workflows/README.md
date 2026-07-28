@@ -46,8 +46,10 @@ Runs the **validator** agent on a newly-queued issue and routes the verdict:
 |--------|----------|-------------|
 | `SWARM_TOKEN` | No | Fine-grained PAT with `issues: write` scope for a distinct actor. Required for stage-label cascades — `GITHUB_TOKEN`-authored labels do not trigger downstream workflows (GitHub recursion guard). Falls back to `GITHUB_TOKEN` with a warning when absent. |
 | `SWARM_LLM_API_KEY` | No | Bearer token for the OpenAI-compatible LLM endpoint. Optional — omit for local endpoints that need no authentication. |
-| `SWARM_SLACK_WEBHOOK` | No | Slack incoming webhook URL. Required when `notify.slack: true` in config. |
-| `SWARM_DISCORD_WEBHOOK` | No | Discord webhook URL. Required when `notify.discord: true` in config. |
+| `SWARM_SLACK_WEBHOOK` | No | Slack incoming webhook URL (webhook mode). Required when slack is in enabled-sinks and using webhook mode. Webhook wins over bot-token when both set. |
+| `SWARM_SLACK_BOT_TOKEN` | No | Slack bot token (bot-token mode). Required when slack is in enabled-sinks and using bot-token mode. Pair with `notify.slack_channel` in config. |
+| `SWARM_DISCORD_WEBHOOK` | No | Discord webhook URL (webhook mode). Required when discord is in enabled-sinks and using webhook mode. Webhook wins over bot-token when both set. |
+| `SWARM_DISCORD_BOT_TOKEN` | No | Discord bot token (bot-token mode). Required when discord is in enabled-sinks and using bot-token mode. Pair with `notify.discord_channel` in config. |
 | `SWARM_TEAMS_WEBHOOK` | No | Microsoft Teams webhook URL. Required when `notify.teams: true` in config. |
 | `SWARM_BUZZ_RELAY_URL` | No | Buzz/Nostr relay `wss://` URL. Required when `notify.buzz_channel` is set in config. |
 | `SWARM_BUZZ_PRIVATE_KEY` | No | Nostr private key (hex or nsec) for the buzz bot. Required when `notify.buzz_channel` is set in config. |
@@ -106,8 +108,10 @@ Runs the **PM** agent on a confirmed issue and posts the resulting spec:
 |--------|----------|-------------|
 | `SWARM_TOKEN` | No | Fine-grained PAT with `issues: write` scope for a distinct actor. Required for stage-label cascades — `GITHUB_TOKEN`-authored labels do not trigger downstream workflows (GitHub recursion guard). Falls back to `GITHUB_TOKEN` with a warning when absent. |
 | `SWARM_LLM_API_KEY` | No | Bearer token for the OpenAI-compatible LLM endpoint. Optional — omit for local endpoints that need no authentication. |
-| `SWARM_SLACK_WEBHOOK` | No | Slack incoming webhook URL. Required when `notify.slack: true` in config. |
-| `SWARM_DISCORD_WEBHOOK` | No | Discord webhook URL. Required when `notify.discord: true` in config. |
+| `SWARM_SLACK_WEBHOOK` | No | Slack incoming webhook URL (webhook mode). Required when slack is in enabled-sinks and using webhook mode. Webhook wins over bot-token when both set. |
+| `SWARM_SLACK_BOT_TOKEN` | No | Slack bot token (bot-token mode). Required when slack is in enabled-sinks and using bot-token mode. Pair with `notify.slack_channel` in config. |
+| `SWARM_DISCORD_WEBHOOK` | No | Discord webhook URL (webhook mode). Required when discord is in enabled-sinks and using webhook mode. Webhook wins over bot-token when both set. |
+| `SWARM_DISCORD_BOT_TOKEN` | No | Discord bot token (bot-token mode). Required when discord is in enabled-sinks and using bot-token mode. Pair with `notify.discord_channel` in config. |
 | `SWARM_TEAMS_WEBHOOK` | No | Microsoft Teams webhook URL. Required when `notify.teams: true` in config. |
 | `SWARM_BUZZ_RELAY_URL` | No | Buzz/Nostr relay `wss://` URL. Required when `notify.buzz_channel` is set in config. |
 | `SWARM_BUZZ_PRIVATE_KEY` | No | Nostr private key (hex or nsec) for the buzz bot. Required when `notify.buzz_channel` is set in config. |
@@ -155,11 +159,13 @@ Key design decisions: **engine-owns-everything** (see `actions/develop-run/READM
 | `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
 | `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
-**Caller-supplied secret:**
+**Caller-supplied secrets:**
 
 | Secret | Required | Description |
 |--------|----------|-------------|
 | `SWARM_TOKEN` | No | Fine-grained PAT with `issues: write` scope for a distinct actor. Forwarded to `transition` and `bump-attempts` so stage-label writes trigger cascade workflows. Falls back to `GITHUB_TOKEN` with a warning when absent. |
+| `SWARM_SLACK_BOT_TOKEN` | No | Slack bot token (bot-token mode) passed through to the notify action. Pair with `notify.slack_channel` in config. |
+| `SWARM_DISCORD_BOT_TOKEN` | No | Discord bot token (bot-token mode) passed through to the notify action. Pair with `notify.discord_channel` in config. |
 
 **Caller example:**
 
@@ -242,6 +248,8 @@ After both the reviewer and security jobs complete successfully, the terminal
 |--------|----------|-------------|
 | `SWARM_TOKEN` | Yes (when `dry-run: false`) | Fine-grained PAT with `pull-requests: write` and `issues: write` scope for a distinct actor. `pull-requests: write` posts the real PR review; `issues: write` enables stage-label cascade transitions across all workflows. |
 | `SWARM_LLM_API_KEY` | No | Bearer token for the OpenAI-compatible LLM endpoint. Optional — omit for local endpoints that need no authentication. |
+| `SWARM_SLACK_BOT_TOKEN` | No | Slack bot token (bot-token mode) passed through to the notify action. Pair with `notify.slack_channel` in config. |
+| `SWARM_DISCORD_BOT_TOKEN` | No | Discord bot token (bot-token mode) passed through to the notify action. Pair with `notify.discord_channel` in config. |
 
 **Caller example:**
 
@@ -296,11 +304,13 @@ is skipped. No additional escalation steps are needed in `fix.yml`.
 | `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
 | `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
-**Caller-supplied secret:**
+**Caller-supplied secrets:**
 
 | Secret | Required | Description |
 |--------|----------|-------------|
 | `SWARM_TOKEN` | No | Fine-grained PAT with `issues: write` scope for a distinct actor. Forwarded to `bump-attempts` so escalation label writes trigger cascade workflows. Falls back to `GITHUB_TOKEN` with a warning when absent. |
+| `SWARM_SLACK_BOT_TOKEN` | No | Slack bot token (bot-token mode) passed through to the notify action. Pair with `notify.slack_channel` in config. |
+| `SWARM_DISCORD_BOT_TOKEN` | No | Discord bot token (bot-token mode) passed through to the notify action. Pair with `notify.discord_channel` in config. |
 
 **Caller example:**
 
@@ -351,6 +361,8 @@ swarm:done`; closes the issue; notifies.
 | `model` | string | `""` | LLM model identifier. |
 | `enabled-sinks` | string | `""` | Comma-separated notify sinks passthrough. |
 | `buzz-channel` | string | `""` | Buzz/Nostr channel UUID passthrough. |
+| `slack-channel` | string | `""` | Slack channel ID passthrough for bot-token mode. |
+| `discord-channel` | string | `""` | Discord channel ID passthrough for bot-token mode. |
 | `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
 | `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
@@ -360,6 +372,8 @@ swarm:done`; closes the issue; notifies.
 |--------|----------|-------------|
 | `SWARM_TOKEN` | No | Fine-grained PAT with `issues: write` scope for a distinct actor. Required for the `swarm:docs → swarm:done` transition to trigger downstream workflows. Falls back to `GITHUB_TOKEN` with a warning when absent. |
 | `SWARM_LLM_API_KEY` | No | Bearer token for the OpenAI-compatible LLM endpoint. Optional — omit for local endpoints that need no authentication. |
+| `SWARM_SLACK_BOT_TOKEN` | No | Slack bot token (bot-token mode) passed through to the notify action. Pair with `notify.slack_channel` in config. |
+| `SWARM_DISCORD_BOT_TOKEN` | No | Discord bot token (bot-token mode) passed through to the notify action. Pair with `notify.discord_channel` in config. |
 
 **Caller example:**
 
@@ -411,6 +425,8 @@ labels, runs the **orchestrator** agent to audit for stalls, and applies
 | `model` | string | `""` | LLM model identifier. |
 | `enabled-sinks` | string | `""` | Comma-separated notify sinks passthrough. |
 | `buzz-channel` | string | `""` | Buzz/Nostr channel UUID passthrough. |
+| `slack-channel` | string | `""` | Slack channel ID passthrough for bot-token mode. |
+| `discord-channel` | string | `""` | Discord channel ID passthrough for bot-token mode. |
 | `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
 | `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
@@ -420,6 +436,8 @@ labels, runs the **orchestrator** agent to audit for stalls, and applies
 |--------|----------|-------------|
 | `SWARM_TOKEN` | No | Fine-grained PAT with `issues: write` scope. Declared for consistency across all seven reusable workflows. Sweeper escalation uses `gh issue edit` (falls back gracefully to `GITHUB_TOKEN` for `swarm:needs-human` writes which do not need cascade triggering). |
 | `SWARM_LLM_API_KEY` | No | Bearer token for the OpenAI-compatible LLM endpoint. Optional — omit for local endpoints that need no authentication. |
+| `SWARM_SLACK_BOT_TOKEN` | No | Slack bot token (bot-token mode) passed through to the notify action. Pair with `notify.slack_channel` in config. |
+| `SWARM_DISCORD_BOT_TOKEN` | No | Discord bot token (bot-token mode) passed through to the notify action. Pair with `notify.discord_channel` in config. |
 
 **Caller example (cron + dispatch):**
 

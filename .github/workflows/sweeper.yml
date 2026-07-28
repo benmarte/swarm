@@ -90,6 +90,16 @@ on:
         required: false
         type: string
         default: ""
+      slack-channel:
+        description: Slack channel ID passthrough for bot-token mode.
+        required: false
+        type: string
+        default: ""
+      discord-channel:
+        description: Discord channel ID passthrough for bot-token mode.
+        required: false
+        type: string
+        default: ""
       engine-repo:
         description: Engine repository (org/repo). Override for forks.
         required: false
@@ -114,10 +124,16 @@ on:
           Optional — omit for local endpoints that need no authentication.
         required: false
       SWARM_SLACK_WEBHOOK:
-        description: Slack incoming webhook URL for notify fan-out. Required when slack is in enabled-sinks.
+        description: Slack incoming webhook URL for notify fan-out. Required when slack is in enabled-sinks (webhook mode).
+        required: false
+      SWARM_SLACK_BOT_TOKEN:
+        description: Slack bot token for notify fan-out. Required when slack is in enabled-sinks (bot-token mode).
         required: false
       SWARM_DISCORD_WEBHOOK:
-        description: Discord webhook URL for notify fan-out. Required when discord is in enabled-sinks.
+        description: Discord webhook URL for notify fan-out. Required when discord is in enabled-sinks (webhook mode).
+        required: false
+      SWARM_DISCORD_BOT_TOKEN:
+        description: Discord bot token for notify fan-out. Required when discord is in enabled-sinks (bot-token mode).
         required: false
       SWARM_TEAMS_WEBHOOK:
         description: Microsoft Teams webhook URL for notify fan-out. Required when teams is in enabled-sinks.
@@ -162,6 +178,16 @@ on:
         default: ""
       buzz-channel:
         description: Buzz/Nostr channel UUID passthrough.
+        required: false
+        type: string
+        default: ""
+      slack-channel:
+        description: Slack channel ID passthrough for bot-token mode.
+        required: false
+        type: string
+        default: ""
+      discord-channel:
+        description: Discord channel ID passthrough for bot-token mode.
         required: false
         type: string
         default: ""
@@ -305,7 +331,9 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       SWARM_SLACK_WEBHOOK: ${{ secrets.SWARM_SLACK_WEBHOOK }}
+      SWARM_SLACK_BOT_TOKEN: ${{ secrets.SWARM_SLACK_BOT_TOKEN }}
       SWARM_DISCORD_WEBHOOK: ${{ secrets.SWARM_DISCORD_WEBHOOK }}
+      SWARM_DISCORD_BOT_TOKEN: ${{ secrets.SWARM_DISCORD_BOT_TOKEN }}
       SWARM_TEAMS_WEBHOOK: ${{ secrets.SWARM_TEAMS_WEBHOOK }}
       SWARM_BUZZ_RELAY_URL: ${{ secrets.SWARM_BUZZ_RELAY_URL }}
       SWARM_BUZZ_PRIVATE_KEY: ${{ secrets.SWARM_BUZZ_PRIVATE_KEY }}
@@ -405,6 +433,8 @@ jobs:
           event-file: /tmp/swarm-sweeper-event.json
           enabled-sinks: ${{ inputs.enabled-sinks || '' }}
           buzz-channel: ${{ inputs.buzz-channel || '' }}
+          slack-channel: ${{ inputs.slack-channel || '' }}
+          discord-channel: ${{ inputs.discord-channel || '' }}
 
       - name: Dry-run log (notify)
         if: inputs.dry-run == true

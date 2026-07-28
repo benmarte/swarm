@@ -17,9 +17,15 @@ outputs:
   notify-slack:
     description: Whether Slack notifications are enabled (true/false).
     value: ${{ steps.load.outputs.notify-slack }}
+  notify-slack-channel:
+    description: Slack channel ID for bot-token mode (from notify.slack_channel).
+    value: ${{ steps.load.outputs.notify-slack-channel }}
   notify-discord:
     description: Whether Discord notifications are enabled (true/false).
     value: ${{ steps.load.outputs.notify-discord }}
+  notify-discord-channel:
+    description: Discord channel ID for bot-token mode (from notify.discord_channel).
+    value: ${{ steps.load.outputs.notify-discord-channel }}
   notify-teams:
     description: Whether Teams notifications are enabled (true/false).
     value: ${{ steps.load.outputs.notify-teams }}
@@ -29,7 +35,9 @@ outputs:
   enabled-sinks:
     description: >
       Comma-separated list of configured notification sinks derived from notify.*
-      config booleans and buzz_channel presence. Empty when no sinks are configured.
+      config. slack/discord are enabled when their boolean is true OR when their
+      channel ID is set. buzz is enabled when buzz_channel is non-empty.
+      Empty when no sinks are configured.
     value: ${{ steps.load.outputs.enabled-sinks }}
   runner-label:
     description: GitHub Actions runner label for agent jobs.
