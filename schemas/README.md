@@ -6,7 +6,7 @@ Implemented in issue #2:
 
 | File | Purpose |
 |------|---------|
-| `outcome.schema.json` | Schema for agent output: `{schema, role, verdict, refs, evidence, notes}`. Per-role verdict enums enforced here. |
+| `outcome.schema.json` | Schema for agent output: `{schema, role, verdict, refs, evidence, notes}`. Per-role verdict enums enforced here. `refs.issue` is required and ≥ 1 for all issue-scoped roles (validator, pm, reviewer, security, docs); for orchestrator (repo-scoped reports), `refs.issue` may be null or omitted. |
 | `event.schema.json` | Schema for notify payloads: `{event, repo, issue, pr, stage_from, stage_to, actor, url, summary}`. |
 | `config.schema.json` | Schema for `swarm.config.yml` in consumer repos. Validated by the caller workflow on every run. |
 | `runner-contract.md` | Human-readable adapter interface spec for both `agent-run` (decision roles) and `develop-run` (coding role). |
