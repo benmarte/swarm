@@ -1,0 +1,7 @@
+[${ROLE}] ${VERDICT} — ${REPO} #${ISSUE}
+
+${SUMMARY}
+
+${EVIDENCE}
+
+${URL}

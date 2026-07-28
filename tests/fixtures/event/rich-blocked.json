@@ -1,0 +1,18 @@
+{
+  "event": "blocked",
+  "repo": "benmarte/swarm",
+  "issue": 7,
+  "pr": 14,
+  "stage_from": "swarm:security",
+  "stage_to": "swarm:blocked",
+  "actor": "swarm-agent",
+  "url": "https://github.com/benmarte/swarm/issues/7",
+  "summary": "Secret exposure risk: commit SHA printed to workflow log.",
+  "role": "security",
+  "verdict": "blocked",
+  "evidence": [
+    "SHA leaked in step output at line 42",
+    "log redaction not applied",
+    "threat model: secret exposure"
+  ]
+}

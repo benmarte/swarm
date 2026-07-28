@@ -1,0 +1,18 @@
+{
+  "event": "validator",
+  "repo": "benmarte/swarm",
+  "issue": 7,
+  "pr": null,
+  "stage_from": "swarm:intake",
+  "stage_to": "swarm:dev",
+  "actor": "swarm-agent",
+  "url": "https://github.com/benmarte/swarm/issues/7",
+  "summary": "Issue is valid and actionable; acceptance criteria are clear.",
+  "role": "validator",
+  "verdict": "confirmed",
+  "evidence": [
+    "no duplicate found",
+    "acceptance criteria are clear",
+    "scope is bounded"
+  ]
+}

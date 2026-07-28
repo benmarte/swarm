@@ -40,6 +40,23 @@
     "summary": {
       "type": "string",
       "minLength": 1
+    },
+    "role": {
+      "description": "Agent role that produced this event (e.g. validator, developer, reviewer). Optional; populated at outcome-producing call sites.",
+      "type": "string",
+      "minLength": 1
+    },
+    "verdict": {
+      "description": "Outcome verdict string (e.g. confirmed, approved, blocked). Optional; populated when the agent stage has a validated outcome.",
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "description": "Ordered list of concrete evidence bullets supporting the verdict. Optional; each item is a single-line string (newlines stripped by callers).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   }
 }

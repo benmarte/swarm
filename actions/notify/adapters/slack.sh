@@ -17,12 +17,31 @@
 # notify.slack is false in swarm.config.yml — channel presence wins.
 # This is intentional and consistent with buzz_channel behaviour.
 #
+# Payload shape (talos-parity):
+#   - top-level "text" field (notification/fallback)
+#   - blocks[0]: section with mrkdwn body (NOTIFY_TEXT if set; else built from
+#                event fields) + "View" button accessory
+#   - blocks[1]: context block "repo · event · #issue"
+#   - attachments[0]: {"color": "<per-event hex>", "fallback": "swarm: <event>"}
+#
+# Per-event color mapping (mirrors talos):
+#   merged / issue-closed / qa / done → green  (#2ecc71)
+#   blocked / fail                    → red    (#e74c3c)
+#   security                          → orange (#e67e22)
+#   reviewer                          → purple (#9b59b6)
+#   default                           → blue   (#3498db)
+#
 # Required env (one of):
 #   SWARM_SLACK_WEBHOOK   — Slack incoming webhook URL (webhook mode)
 #   SWARM_SLACK_BOT_TOKEN — Bot token (bot-token mode)
 #
 # Required env for bot-token mode:
 #   SLACK_CHANNEL         — Slack channel ID (alphanumeric, e.g. C0123456789)
+#
+# Optional env:
+#   NOTIFY_TEXT — pre-rendered notification text (set by notify.sh template
+#                 rendering). When present, used as the section body instead
+#                 of the fallback built from raw event fields.
 #
 # Argument:
 #   $1 — path to the canonical event JSON file
@@ -60,46 +79,46 @@ if [ "$_MODE" = "bot" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Build Slack blocks payload from canonical event fields
+# Per-event color mapping (talos-parity)
+# ---------------------------------------------------------------------------
+_event_type="$(jq -r '.event' "$EVENT_FILE")"
+case "$_event_type" in
+  merged|issue-closed|qa|done) _color="#2ecc71" ;;
+  blocked|fail)                _color="#e74c3c" ;;
+  security)                    _color="#e67e22" ;;
+  reviewer)                    _color="#9b59b6" ;;
+  *)                           _color="#3498db" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Build section body: use pre-rendered NOTIFY_TEXT when available (preferred),
+# else build from raw event fields (backward-compatible fallback).
+# ---------------------------------------------------------------------------
+_notify_text="${NOTIFY_TEXT:-}"
+if [ -z "$_notify_text" ]; then
+  _notify_text="$(jq -r \
+    '"swarm: " + .event + "\n" +
+     "Repo: " + .repo + " | Issue: #" + (.issue | tostring) + "\n" +
+     "Stage: `" + .stage_from + "` -> `" + .stage_to + "` | Actor: " + .actor + "\n" +
+     .summary' \
+    "$EVENT_FILE")"
+fi
+
+# ---------------------------------------------------------------------------
+# Build Slack blocks payload (talos-parity: section + context + color attachment)
 # ---------------------------------------------------------------------------
 payload=$(jq -n \
   --slurpfile ev "$EVENT_FILE" \
+  --arg color "$_color" \
+  --arg body "$_notify_text" \
   '{
+    text: ("swarm: " + $ev[0].event),
     blocks: [
-      {
-        type: "header",
-        text: {
-          type: "plain_text",
-          text: ("swarm: " + $ev[0].event),
-          emoji: true
-        }
-      },
-      {
-        type: "section",
-        fields: [
-          {
-            type: "mrkdwn",
-            text: ("*Repo:*\n" + $ev[0].repo)
-          },
-          {
-            type: "mrkdwn",
-            text: ("*Issue:*\n#" + ($ev[0].issue | tostring))
-          },
-          {
-            type: "mrkdwn",
-            text: ("*Stage:*\n`" + $ev[0].stage_from + "` → `" + $ev[0].stage_to + "`")
-          },
-          {
-            type: "mrkdwn",
-            text: ("*Actor:*\n" + $ev[0].actor)
-          }
-        ]
-      },
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: $ev[0].summary
+          text: $body
         },
         accessory: {
           type: "button",
@@ -111,6 +130,21 @@ payload=$(jq -n \
           url: $ev[0].url,
           action_id: "view_link"
         }
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: ($ev[0].repo + " · " + $ev[0].event + " · #" + ($ev[0].issue | tostring))
+          }
+        ]
+      }
+    ],
+    attachments: [
+      {
+        color: $color,
+        fallback: ("swarm: " + $ev[0].event)
       }
     ]
   }')

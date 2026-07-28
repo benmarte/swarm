@@ -10,6 +10,9 @@ ADAPTERS_DIR="$REPO_ROOT/actions/notify/adapters"
 STUBS_DIR="$REPO_ROOT/tests/stubs"
 FIXTURE_EVENT="$REPO_ROOT/tests/fixtures/event/valid.json"
 INVALID_EVENT="$REPO_ROOT/tests/fixtures/event/invalid-missing-field.json"
+FIXTURE_RICH="$REPO_ROOT/tests/fixtures/event/rich.json"
+FIXTURE_BLOCKED="$REPO_ROOT/tests/fixtures/event/rich-blocked.json"
+FIXTURE_MERGED="$REPO_ROOT/tests/fixtures/event/rich-merged.json"
 
 setup() {
   # Temp logs for curl and nak stubs
@@ -763,4 +766,391 @@ YAML
 
   run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
   [ "$status" -ne 0 ]
+}
+
+# =============================================================================
+# Rich fixture — golden payloads with role/verdict/evidence (#63)
+# Tests 3 event classes (validator/blocked/merged) across slack/discord/buzz.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Event schema: rich fixtures validate against the extended schema
+# ---------------------------------------------------------------------------
+
+@test "event schema: rich fixture with role/verdict/evidence passes validation" {
+  command -v ajv >/dev/null 2>&1 || skip "ajv-cli not installed"
+  run ajv validate -s "$REPO_ROOT/schemas/event.schema.json" -d "$FIXTURE_RICH"
+  [ "$status" -eq 0 ]
+}
+
+@test "event schema: rich-blocked fixture passes validation" {
+  command -v ajv >/dev/null 2>&1 || skip "ajv-cli not installed"
+  run ajv validate -s "$REPO_ROOT/schemas/event.schema.json" -d "$FIXTURE_BLOCKED"
+  [ "$status" -eq 0 ]
+}
+
+@test "event schema: rich-merged fixture passes validation" {
+  command -v ajv >/dev/null 2>&1 || skip "ajv-cli not installed"
+  run ajv validate -s "$REPO_ROOT/schemas/event.schema.json" -d "$FIXTURE_MERGED"
+  [ "$status" -eq 0 ]
+}
+
+@test "event schema: existing transition fixture still validates (backward compat)" {
+  command -v ajv >/dev/null 2>&1 || skip "ajv-cli not installed"
+  run ajv validate -s "$REPO_ROOT/schemas/event.schema.json" -d "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Slack golden payload — validator event (blue, NOTIFY_TEXT with evidence)
+# ---------------------------------------------------------------------------
+
+@test "slack adapter: rich validator event payload has context block with repo/event/issue" {
+  export NOTIFY_TEXT="[validator] confirmed — Issue is valid and actionable
+• no duplicate found
+• acceptance criteria are clear
+• scope is bounded"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_RICH"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  # Context block must contain repo · event · #issue
+  echo "$body" | jq -e '
+    .blocks[] | select(.type == "context") |
+    .elements[0].text | (contains("benmarte/swarm") and contains("validator") and contains("#7"))
+  ' > /dev/null
+}
+
+@test "slack adapter: rich validator event payload has color attachment (default blue)" {
+  export NOTIFY_TEXT="[validator] confirmed"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_RICH"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  # attachments[0].color must be the default blue
+  echo "$body" | jq -e '.attachments[0].color == "#3498db"' > /dev/null
+}
+
+@test "slack adapter: rich validator event section body contains verdict and evidence" {
+  export NOTIFY_TEXT="[validator] confirmed — Issue is valid and actionable
+• no duplicate found
+• acceptance criteria are clear"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_RICH"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  section_text="$(echo "$body" | jq -r '.blocks[0].text.text')"
+  [[ "$section_text" == *"confirmed"* ]]
+  [[ "$section_text" == *"no duplicate found"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Slack golden payload — blocked event (red)
+# ---------------------------------------------------------------------------
+
+@test "slack adapter: blocked event has red color attachment" {
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_BLOCKED"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  echo "$body" | jq -e '.attachments[0].color == "#e74c3c"' > /dev/null
+}
+
+@test "slack adapter: blocked event context block contains repo and issue" {
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_BLOCKED"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  echo "$body" | jq -e '
+    .blocks[] | select(.type == "context") |
+    .elements[0].text | contains("benmarte/swarm")
+  ' > /dev/null
+}
+
+# ---------------------------------------------------------------------------
+# Slack golden payload — merged event (green)
+# ---------------------------------------------------------------------------
+
+@test "slack adapter: merged event has green color attachment" {
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_MERGED"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  echo "$body" | jq -e '.attachments[0].color == "#2ecc71"' > /dev/null
+}
+
+# ---------------------------------------------------------------------------
+# Slack: security event (orange), reviewer event (purple) color mapping
+# ---------------------------------------------------------------------------
+
+@test "slack adapter: security event has orange color attachment" {
+  # Create a minimal security event in a temp file
+  _tmp="$(mktemp)"
+  trap 'rm -f "$_tmp"' EXIT
+  jq '.event = "security"' "$FIXTURE_RICH" > "$_tmp"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$_tmp"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  echo "$body" | jq -e '.attachments[0].color == "#e67e22"' > /dev/null
+}
+
+@test "slack adapter: reviewer event has purple color attachment" {
+  _tmp="$(mktemp)"
+  trap 'rm -f "$_tmp"' EXIT
+  jq '.event = "reviewer"' "$FIXTURE_RICH" > "$_tmp"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$_tmp"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  echo "$body" | jq -e '.attachments[0].color == "#9b59b6"' > /dev/null
+}
+
+# ---------------------------------------------------------------------------
+# Discord golden payload — validator event (blue embed color)
+# ---------------------------------------------------------------------------
+
+@test "discord adapter: rich validator event embed has blue color (3447003)" {
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_RICH"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  echo "$body" | jq -e '.embeds[0].color == 3447003' > /dev/null
+}
+
+@test "discord adapter: rich validator event embed footer has context line" {
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_RICH"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  footer="$(echo "$body" | jq -r '.embeds[0].footer.text')"
+  [[ "$footer" == *"benmarte/swarm"* ]]
+  [[ "$footer" == *"validator"* ]]
+  [[ "$footer" == *"#7"* ]]
+}
+
+@test "discord adapter: rich validator event embed url is clickable" {
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_RICH"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  url="$(jq -r '.url' "$FIXTURE_RICH")"
+  echo "$body" | jq -e ".embeds[0].url == \"$url\"" > /dev/null
+}
+
+# ---------------------------------------------------------------------------
+# Discord golden payload — blocked (red) and merged (green) event colors
+# ---------------------------------------------------------------------------
+
+@test "discord adapter: blocked event embed has red color (15158332)" {
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_BLOCKED"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  echo "$body" | jq -e '.embeds[0].color == 15158332' > /dev/null
+}
+
+@test "discord adapter: merged event embed has green color (3066993)" {
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_MERGED"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  echo "$body" | jq -e '.embeds[0].color == 3066993' > /dev/null
+}
+
+# ---------------------------------------------------------------------------
+# Buzz golden payload — rich validator event with verdict/evidence in text
+# ---------------------------------------------------------------------------
+
+@test "buzz adapter: rich validator event text contains role, verdict, evidence, url" {
+  export NOTIFY_TEXT="[validator] confirmed — Issue is valid and actionable
+• no duplicate found
+• acceptance criteria are clear
+• scope is bounded
+https://github.com/benmarte/swarm/issues/7"
+
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_RICH"
+  [ "$status" -eq 0 ]
+
+  nak_args="$(cat "$NAK_LOG")"
+  [[ "$nak_args" == *"confirmed"* ]]
+  [[ "$nak_args" == *"no duplicate found"* ]]
+  [[ "$nak_args" == *"https://github.com/benmarte/swarm/issues/7"* ]]
+}
+
+@test "buzz adapter: without NOTIFY_TEXT, rich fixture fallback includes role and verdict" {
+  unset NOTIFY_TEXT
+
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_RICH"
+  [ "$status" -eq 0 ]
+
+  nak_args="$(cat "$NAK_LOG")"
+  # Fallback format includes role/verdict/evidence from event JSON
+  [[ "$nak_args" == *"validator"* ]]
+  [[ "$nak_args" == *"confirmed"* ]]
+  [[ "$nak_args" == *"no duplicate"* ]]
+}
+
+@test "buzz adapter: blocked event fallback text contains blocked verdict and evidence" {
+  unset NOTIFY_TEXT
+
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_BLOCKED"
+  [ "$status" -eq 0 ]
+
+  nak_args="$(cat "$NAK_LOG")"
+  [[ "$nak_args" == *"blocked"* ]]
+  [[ "$nak_args" == *"SHA leaked"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Teams golden payload — rich fixture includes verdict and evidence blocks
+# ---------------------------------------------------------------------------
+
+@test "teams adapter: rich validator event AdaptiveCard includes verdict TextBlock" {
+  run bash "$ADAPTERS_DIR/teams.sh" "$FIXTURE_RICH"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  payload_text="$(echo "$body" | jq -r 'tostring')"
+  # Verdict line should appear somewhere in the card
+  [[ "$payload_text" == *"confirmed"* ]]
+}
+
+@test "teams adapter: rich validator event AdaptiveCard includes evidence bullets" {
+  run bash "$ADAPTERS_DIR/teams.sh" "$FIXTURE_RICH"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  payload_text="$(echo "$body" | jq -r 'tostring')"
+  [[ "$payload_text" == *"no duplicate found"* ]]
+  [[ "$payload_text" == *"acceptance criteria"* ]]
+}
+
+@test "teams adapter: base event without evidence still renders FactSet" {
+  run bash "$ADAPTERS_DIR/teams.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  echo "$body" | jq -e '
+    .attachments[0].content.body[] | select(.type == "FactSet")
+  ' > /dev/null
+}
+
+# ---------------------------------------------------------------------------
+# Notification templates: render with and without optional evidence
+# ---------------------------------------------------------------------------
+
+@test "notification template: validator.md renders with verdict and evidence" {
+  _tmpl="$REPO_ROOT/templates/notifications/validator.md"
+  [ -f "$_tmpl" ]
+
+  rendered="$(ROLE="validator" VERDICT="confirmed" \
+    SUMMARY="Issue is valid and actionable." \
+    EVIDENCE="• no duplicate found
+• acceptance criteria are clear" \
+    REPO="benmarte/swarm" ISSUE="7" URL="https://github.com/benmarte/swarm/issues/7" \
+    python3 -c '
+import os, string, sys
+with open(sys.argv[1]) as f:
+    t = string.Template(f.read())
+print(t.safe_substitute(os.environ).strip())
+' "$_tmpl")"
+
+  [[ "$rendered" == *"validator"* ]]
+  [[ "$rendered" == *"confirmed"* ]]
+  [[ "$rendered" == *"no duplicate found"* ]]
+  [[ "$rendered" == *"https://github.com/benmarte/swarm/issues/7"* ]]
+}
+
+@test "notification template: validator.md renders without evidence (empty EVIDENCE)" {
+  _tmpl="$REPO_ROOT/templates/notifications/validator.md"
+  [ -f "$_tmpl" ]
+
+  rendered="$(ROLE="validator" VERDICT="confirmed" \
+    SUMMARY="Issue is valid and actionable." \
+    EVIDENCE="" \
+    REPO="benmarte/swarm" ISSUE="7" URL="https://github.com/benmarte/swarm/issues/7" \
+    python3 -c '
+import os, string, sys
+with open(sys.argv[1]) as f:
+    t = string.Template(f.read())
+print(t.safe_substitute(os.environ).strip())
+' "$_tmpl")"
+
+  [[ "$rendered" == *"validator"* ]]
+  [[ "$rendered" == *"confirmed"* ]]
+  [[ "$rendered" == *"Issue is valid"* ]]
+}
+
+@test "notification template: blocked.md renders with human-attention note" {
+  _tmpl="$REPO_ROOT/templates/notifications/blocked.md"
+  [ -f "$_tmpl" ]
+
+  rendered="$(ROLE="security" VERDICT="blocked" \
+    SUMMARY="Secret exposure risk." \
+    EVIDENCE="• SHA leaked at line 42" \
+    REPO="benmarte/swarm" ISSUE="7" URL="https://github.com/benmarte/swarm/issues/7" \
+    python3 -c '
+import os, string, sys
+with open(sys.argv[1]) as f:
+    t = string.Template(f.read())
+print(t.safe_substitute(os.environ).strip())
+' "$_tmpl")"
+
+  [[ "$rendered" == *"blocked"* ]]
+  [[ "$rendered" == *"Human attention"* ]]
+  [[ "$rendered" == *"SHA leaked"* ]]
+}
+
+@test "notification template: all required notification templates exist" {
+  for name in validator developer reviewer security qa docs blocked merged pr-opened issue-closed transition; do
+    [ -f "$REPO_ROOT/templates/notifications/${name}.md" ] \
+      || { echo "FAIL: missing $name.md" >&2; return 1; }
+  done
+}
+
+# ---------------------------------------------------------------------------
+# notify.sh integration: template rendering sets NOTIFY_TEXT before fan-out
+# ---------------------------------------------------------------------------
+
+@test "notify.sh: renders notification template and sets NOTIFY_TEXT for adapters" {
+  export EVENT_FILE="$FIXTURE_RICH"
+  export ENABLED_SINKS="slack"
+
+  run bash "$NOTIFY_SH"
+  [ "$status" -eq 0 ]
+
+  # The rendered body (from validator.md template) should appear in the Slack payload
+  body="$(cat "$CURL_BODY_LOG")"
+  section_text="$(echo "$body" | jq -r '.blocks[0].text.text')"
+  # Template includes role+verdict+summary from the rich fixture
+  [[ "$section_text" == *"validator"* ]]
+  [[ "$section_text" == *"confirmed"* ]]
+}
+
+@test "notify.sh: blocked event template renders with red color in Slack" {
+  export EVENT_FILE="$FIXTURE_BLOCKED"
+  export ENABLED_SINKS="slack"
+
+  run bash "$NOTIFY_SH"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  echo "$body" | jq -e '.attachments[0].color == "#e74c3c"' > /dev/null
+}
+
+@test "notify.sh: merged event template renders with green color in Slack" {
+  export EVENT_FILE="$FIXTURE_MERGED"
+  export ENABLED_SINKS="slack"
+
+  run bash "$NOTIFY_SH"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  echo "$body" | jq -e '.attachments[0].color == "#2ecc71"' > /dev/null
 }

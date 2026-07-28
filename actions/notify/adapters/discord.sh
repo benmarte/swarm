@@ -19,12 +19,30 @@
 # The value is interpolated directly into the API URL path; invalid values
 # are rejected before any network call.
 #
+# Embed shape (talos-parity):
+#   - title: "swarm: <event>"
+#   - url: event url (clickable title)
+#   - description: NOTIFY_TEXT if set; else built from event fields
+#   - color: per-event integer (mirrors talos mapping)
+#   - footer.text: "repo · event · #issue" context line
+#
+# Per-event color mapping (mirrors talos):
+#   merged / issue-closed / qa / done → green  (3066993)
+#   blocked / fail                    → red    (15158332)
+#   security                          → orange (15105570)
+#   reviewer                          → purple (10181046)
+#   default                           → blue   (3447003)
+#
 # Required env (one of):
 #   SWARM_DISCORD_WEBHOOK    — Discord incoming webhook URL (webhook mode)
 #   SWARM_DISCORD_BOT_TOKEN  — Bot token (bot-token mode)
 #
 # Required env for bot-token mode:
 #   DISCORD_CHANNEL          — Discord channel snowflake ID (17-20 digits)
+#
+# Optional env:
+#   NOTIFY_TEXT — pre-rendered notification text (set by notify.sh template
+#                 rendering). When present, used as the embed description.
 #
 # Argument:
 #   $1 — path to the canonical event JSON file
@@ -62,41 +80,44 @@ if [ "$_MODE" = "bot" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Build Discord embed payload from canonical event fields
+# Per-event color mapping (talos-parity integer values)
+# ---------------------------------------------------------------------------
+_event_type="$(jq -r '.event' "$EVENT_FILE")"
+case "$_event_type" in
+  merged|issue-closed|qa|done) _color_int=3066993  ;;
+  blocked|fail)                _color_int=15158332 ;;
+  security)                    _color_int=15105570 ;;
+  reviewer)                    _color_int=10181046 ;;
+  *)                           _color_int=3447003  ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Build embed description: NOTIFY_TEXT when available, else fallback
+# including key event fields so the embed is self-contained.
+# ---------------------------------------------------------------------------
+_notify_text="${NOTIFY_TEXT:-}"
+if [ -z "$_notify_text" ]; then
+  _notify_text="$(jq -r \
+    '.summary + "\nStage: `" + .stage_from + "` -> `" + .stage_to + "` | Actor: " + .actor' \
+    "$EVENT_FILE")"
+fi
+
+# ---------------------------------------------------------------------------
+# Build Discord embed payload (talos-parity: title/url/description/color/footer)
 # ---------------------------------------------------------------------------
 payload=$(jq -n \
   --slurpfile ev "$EVENT_FILE" \
+  --argjson color "$_color_int" \
+  --arg desc "$_notify_text" \
   '{
     embeds: [
       {
         title: ("swarm: " + $ev[0].event),
         url: $ev[0].url,
-        description: $ev[0].summary,
-        color: 5814783,
-        fields: [
-          {
-            name: "Repo",
-            value: $ev[0].repo,
-            inline: true
-          },
-          {
-            name: "Issue",
-            value: ("#" + ($ev[0].issue | tostring)),
-            inline: true
-          },
-          {
-            name: "Stage",
-            value: ("`" + $ev[0].stage_from + "` → `" + $ev[0].stage_to + "`"),
-            inline: false
-          },
-          {
-            name: "Actor",
-            value: $ev[0].actor,
-            inline: true
-          }
-        ],
+        description: $desc,
+        color: $color,
         footer: {
-          text: "swarm pipeline"
+          text: ($ev[0].repo + " · " + $ev[0].event + " · #" + ($ev[0].issue | tostring))
         }
       }
     ]

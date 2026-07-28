@@ -9,11 +9,12 @@
 #     bash scripts/render-comment.sh <template-path> <output-path>
 #
 # Template variables (all optional; unmatched placeholders left as-is):
-#   HEADER   — comment header block (role + stage identifier)
-#   VERDICT  — agent verdict string (single-line)
-#   SUMMARY  — evidence.summary (single-line)
-#   DETAILS  — formatted evidence bullets (may be multiline)
-#   PR       — PR URL or "PR #N" reference (single-line)
+#   HEADER    — comment header block (role + stage identifier)
+#   VERDICT   — agent verdict string (single-line)
+#   SUMMARY   — evidence.summary (single-line)
+#   DETAILS   — formatted evidence bullets (may be multiline)
+#   PR        — PR URL or "PR #N" reference (single-line)
+#   NEXT_STEP — what-changed / next-step guidance (single-line)
 #
 # The output-path MUST be a mktemp-created path — never a path inside the repo tree.
 # Callers must create the temp file and clean it up via trap 'rm -f "$body"' EXIT.
@@ -62,11 +63,12 @@ def multi(key, default=""):
     return os.environ.get(key, default).replace('\r', '').replace('\n\n', '\n')
 
 mapping = {
-    "HEADER":  multi("HEADER"),
-    "VERDICT": single("VERDICT"),
-    "SUMMARY": single("SUMMARY"),
-    "DETAILS": multi("DETAILS"),
-    "PR":      single("PR"),
+    "HEADER":    multi("HEADER"),
+    "VERDICT":   single("VERDICT"),
+    "SUMMARY":   single("SUMMARY"),
+    "DETAILS":   multi("DETAILS"),
+    "PR":        single("PR"),
+    "NEXT_STEP": single("NEXT_STEP"),
 }
 
 with open(template_path) as fh:
