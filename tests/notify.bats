@@ -358,14 +358,104 @@ teardown() {
   [[ "$output" == *"BUZZ_CHANNEL not set"* ]]
 }
 
-@test "buzz adapter: exits 1 when nak binary not found" {
-  # Override NAK_BIN to a nonexistent path so command -v fails regardless of
-  # whether nak is installed on the host machine.
+@test "buzz adapter: exits 1 when NAK_BIN points to non-executable path" {
+  # NAK_BIN set to a non-existent path → must fail loudly (not attempt download)
   export NAK_BIN="/nonexistent/nak"
 
   run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"'nak' CLI not found"* ]]
+  [[ "$output" == *"NAK_BIN"* ]] && [[ "$output" == *"not executable"* ]]
+}
+
+# =============================================================================
+# adapters/buzz.sh — nak auto-provisioning (#62)
+# =============================================================================
+
+@test "buzz adapter: nak on PATH — provisioner skipped, no download" {
+  # Default setup has nak stub on PATH; _nak_ensure should skip provisioning
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+  # Provisioner must report it found nak on PATH
+  [[ "$output" == *"using nak from PATH"* ]]
+  # curl must NOT have been called for the nak download URL
+  [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "fiatjaf/nak" "$CURL_STUB_LOG"
+}
+
+@test "buzz adapter: nak absent — provisioner downloads, verifies, and executes nak" {
+  # Build a stubs dir that has curl (to stub downloads) but NOT nak.
+  # Use a PATH that excludes system dirs containing nak (e.g. /opt/homebrew/bin)
+  # so that command -v nak fails → _nak_ensure triggers auto-provisioning.
+  _no_nak="${BATS_TEST_TMPDIR}/stubs-no-nak"
+  mkdir -p "$_no_nak"
+  for _f in "$STUBS_DIR"/*; do
+    _n="$(basename "$_f")"
+    [ "$_n" = "nak" ] && continue
+    ln -sf "$_f" "$_no_nak/$_n"
+  done
+
+  # Minimal "downloaded" nak binary — just needs to be executable and exit 0
+  _content='#!/bin/sh'$'\n''exit 0'
+
+  # Compute SHA256 of what the curl stub will write (printf '%s\n' <content>)
+  # Use the same tool that buzz.sh uses so values match
+  if /usr/bin/sha256sum /dev/null >/dev/null 2>&1; then
+    _sha="$(printf '%s\n' "$_content" | /usr/bin/sha256sum | awk '{print $1}')"
+  else
+    _sha="$(printf '%s\n' "$_content" | /usr/bin/shasum -a 256 | awk '{print $1}')"
+  fi
+
+  export CURL_STUB_RESPONSE="$_content"
+  # Override pinned SHA256s via env (buzz.sh uses ${VAR:-pinned}) so the stub is accepted
+  export NAK_SHA256_linux_amd64="$_sha"
+  export NAK_SHA256_linux_arm64="$_sha"
+  export NAK_SHA256_darwin_amd64="$_sha"
+  export NAK_SHA256_darwin_arm64="$_sha"
+  unset NAK_BIN
+
+  # Minimal PATH: stubs-no-nak (has curl stub) + /usr/bin + /bin
+  # This excludes /opt/homebrew/bin etc. where a local nak may live.
+  # jq and shasum/sha256sum are at /usr/bin on both macOS and Linux.
+  export PATH="${_no_nak}:/usr/bin:/bin"
+
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+  # Provisioner must emit a "downloading" message
+  [[ "$output" == *"downloading"* ]]
+  # curl must have been called with the nak download URL
+  grep -q "fiatjaf/nak/releases/download" "$CURL_STUB_LOG"
+  # Provisioner must confirm the binary was verified
+  [[ "$output" == *"provisioned and verified"* ]]
+}
+
+@test "buzz adapter: nak absent — checksum mismatch causes loud failure, no exec" {
+  # Build a stubs dir with curl but without nak
+  _no_nak_bad="${BATS_TEST_TMPDIR}/stubs-no-nak-badsha"
+  mkdir -p "$_no_nak_bad"
+  for _f in "$STUBS_DIR"/*; do
+    _n="$(basename "$_f")"
+    [ "$_n" = "nak" ] && continue
+    ln -sf "$_f" "$_no_nak_bad/$_n"
+  done
+
+  # curl "downloads" tampered content — sha256 will NOT match the pinned values
+  export CURL_STUB_RESPONSE="tampered-binary-content"
+  # NAK_SHA256_* env vars are NOT set; buzz.sh uses its pinned defaults (real binary hashes)
+  unset NAK_BIN
+  unset NAK_SHA256_linux_amd64
+  unset NAK_SHA256_linux_arm64
+  unset NAK_SHA256_darwin_amd64
+  unset NAK_SHA256_darwin_arm64
+
+  export PATH="${_no_nak_bad}:/usr/bin:/bin"
+
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  # Must report checksum mismatch clearly
+  [[ "$output" == *"checksum mismatch"* ]]
+  # Must refuse to execute the binary
+  [[ "$output" == *"Refusing to execute"* ]]
+  # nak must NOT have been invoked
+  [ ! -s "$NAK_LOG" ]
 }
 
 @test "buzz adapter: exits 1 when nak returns failure" {

@@ -10,12 +10,11 @@ Before starting, confirm you have:
 
 - **`gh`** authenticated to GitHub (`gh auth status` should show your account and the consumer repo's organization).
 - **`node`** (any current LTS) — `ajv-cli@5.0.0` is installed globally by swarm's composite actions automatically; you need `node` on the self-hosted runner, not necessarily locally.
-- **`nak`** installed on the self-hosted runner — only required if you enable the buzz/Nostr notify sink. `nak` must be on `$PATH` for the runner user. (`brew install nak` on macOS; see [github.com/fiatjaf/nak](https://github.com/fiatjaf/nak) for other platforms.)
 - A **self-hosted runner labeled `swarm-agent`** registered to your repo or organization. Agent jobs run there for locality and auth reasons (same posture as Daedalus). Non-agent jobs (label swaps, validation, notify) run on `ubuntu-latest`. The runner user needs:
   - `claude` CLI on `$PATH` (if using the claude adapter) — `npm install -g @anthropic-ai/claude-code`.
   - `gh` CLI on `$PATH` and authenticated.
   - `jq` on `$PATH`.
-  - `nak` on `$PATH` (if using buzz notify).
+  - `nak` (if using buzz notify) — **auto-installed on GitHub-hosted runners** (`ubuntu-latest`); on self-hosted runners, pre-install it (`brew install nak` on macOS; see [github.com/fiatjaf/nak](https://github.com/fiatjaf/nak) for other platforms) or ensure outbound HTTPS access to `github.com/fiatjaf/nak/releases` so the adapter can download it at run-time.
   - `python3` with **PyYAML** on `$PATH` — required to convert `swarm.config.yml` (YAML) to JSON for field extraction. Pre-installed on all GitHub-hosted `ubuntu-*` runners. On self-hosted macOS runners: `brew install python3 && pip3 install pyyaml`. Fallback: `npm install -g js-yaml` (node + js-yaml is tried when python3+PyYAML is absent).
   - `ajv-cli@5.0.0` is installed in-job by the composite actions; it does not need to be pre-installed.
 
@@ -327,7 +326,7 @@ Webhook mode wins when both `SWARM_DISCORD_WEBHOOK` and `SWARM_DISCORD_BOT_TOKEN
 
 Buzz is not an HTTP webhook. `buzz.sh` publishes a signed Nostr `kind:9` event to a NIP-29 relay using the `nak` CLI. NIP-29 groups enforce group membership — the bot keypair must be admitted to the channel before it can post, and it should have a published `kind:0` (profile) event so it appears by name in the relay's user picker when you manage membership.
 
-1. **Install `nak` on the self-hosted runner** — the `nak` binary must be on `$PATH` for the runner user (see Prerequisites). Verify with `which nak`.
+1. **`nak` provisioning** — on GitHub-hosted runners (`ubuntu-latest`) `nak` is downloaded and SHA256-verified automatically by `buzz.sh` at run-time; no manual installation required. On self-hosted runners, pre-install it (`brew install nak` on macOS; see [github.com/fiatjaf/nak](https://github.com/fiatjaf/nak) for Linux), or ensure outbound HTTPS to `github.com/fiatjaf/nak/releases` so the adapter can download it. Verify a pre-installed binary with `which nak`.
 
 2. **Generate a Nostr keypair for the bot.**
    ```bash
@@ -636,4 +635,4 @@ Bootstrap is idempotent. It re-seeds all secrets (only non-empty values), skips 
 | Duplicate label events trigger two runs | Concurrency group not firing | Each workflow uses `concurrency: swarm-<issue> / cancel-in-progress: false` — the second run will queue (not cancel) and exit cleanly after checking state |
 | Issue stuck in `swarm:needs-human` | Fix loop exceeded 3 attempts or validator returned needs-info | Resolve the underlying problem, remove `swarm:needs-human`, re-apply the appropriate stage label |
 | `swarm:paused` issue not escalated | Expected — the sweeper never touches `swarm:paused` issues | Remove `swarm:paused` manually when you are ready to resume; the sweeper will then escalate on the next run if the issue is still stuck |
-| buzz notifications not delivered | `nak` not on runner PATH, or bad relay URL / key | `which nak` on runner; check `SWARM_BUZZ_RELAY_URL` and `SWARM_BUZZ_PRIVATE_KEY` in GitHub Secrets |
+| buzz notifications not delivered | bad relay URL / key, or download blocked on self-hosted runner | check `SWARM_BUZZ_RELAY_URL` and `SWARM_BUZZ_PRIVATE_KEY` in GitHub Secrets; on self-hosted runners verify `nak` is pre-installed or outbound HTTPS to `github.com/fiatjaf/nak/releases` is allowed |
