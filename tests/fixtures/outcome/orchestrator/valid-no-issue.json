@@ -1,0 +1,19 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "orchestrator",
+  "verdict": "report",
+  "refs": {},
+  "evidence": {
+    "summary": "Repo-scoped sweep: 1 stuck issue found.",
+    "checked_issues": [10, 11, 12],
+    "stuck": [
+      {
+        "issue": 11,
+        "stage_label": "swarm:dev",
+        "last_activity_iso": "2026-07-25T10:00:00Z",
+        "age_hours": 72,
+        "recommendation": "escalate"
+      }
+    ]
+  }
+}

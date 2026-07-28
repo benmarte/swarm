@@ -20,11 +20,10 @@
     },
     "refs": {
       "type": "object",
-      "required": ["issue"],
       "additionalProperties": false,
       "properties": {
         "issue": {
-          "type": "integer",
+          "type": ["integer", "null"],
           "minimum": 1
         },
         "pr": {
@@ -47,7 +46,11 @@
   },
   "then": {
     "properties": {
-      "verdict": { "enum": ["confirmed", "duplicate", "invalid", "needs-info"] }
+      "verdict": { "enum": ["confirmed", "duplicate", "invalid", "needs-info"] },
+      "refs": {
+        "required": ["issue"],
+        "properties": { "issue": { "type": "integer", "minimum": 1 } }
+      }
     }
   },
   "else": {
@@ -57,7 +60,11 @@
     },
     "then": {
       "properties": {
-        "verdict": { "enum": ["spec", "escalated"] }
+        "verdict": { "enum": ["spec", "escalated"] },
+        "refs": {
+          "required": ["issue"],
+          "properties": { "issue": { "type": "integer", "minimum": 1 } }
+        }
       }
     },
     "else": {
@@ -67,7 +74,11 @@
       },
       "then": {
         "properties": {
-          "verdict": { "enum": ["approve", "request-changes"] }
+          "verdict": { "enum": ["approve", "request-changes"] },
+          "refs": {
+            "required": ["issue"],
+            "properties": { "issue": { "type": "integer", "minimum": 1 } }
+          }
         }
       },
       "else": {
@@ -77,7 +88,11 @@
         },
         "then": {
           "properties": {
-            "verdict": { "enum": ["pass", "fail", "advisory"] }
+            "verdict": { "enum": ["pass", "fail", "advisory"] },
+            "refs": {
+              "required": ["issue"],
+              "properties": { "issue": { "type": "integer", "minimum": 1 } }
+            }
           }
         },
         "else": {
@@ -87,7 +102,11 @@
           },
           "then": {
             "properties": {
-              "verdict": { "enum": ["done", "skipped"] }
+              "verdict": { "enum": ["done", "skipped"] },
+              "refs": {
+                "required": ["issue"],
+                "properties": { "issue": { "type": "integer", "minimum": 1 } }
+              }
             }
           },
           "else": {
@@ -97,7 +116,10 @@
             },
             "then": {
               "properties": {
-                "verdict": { "enum": ["report"] }
+                "verdict": { "enum": ["report"] },
+                "refs": {
+                  "properties": { "issue": { "type": ["integer", "null"] } }
+                }
               }
             }
           }

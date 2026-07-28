@@ -66,14 +66,16 @@ Do not write any prose before or after the JSON object.
 Do not wrap it in markdown code fences.
 Do not add any explanation, commentary, or apology.
 
+**Important:** The orchestrator is repo-scoped, not issue-scoped. You MUST omit
+`refs.issue` or set it to `null` — never use an integer. Setting `"issue": 0`
+is invalid and will fail schema validation.
+
 ```json
 {
   "schema": "swarm/outcome@1",
   "role": "orchestrator",
   "verdict": "report",
-  "refs": {
-    "issue": 0
-  },
+  "refs": {},
   "evidence": {
     "summary": "<one-sentence sweep result>",
     "checked_issues": [],
