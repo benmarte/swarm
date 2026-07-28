@@ -300,11 +300,27 @@ jobs:
                  else .[0].conclusion
                  end')"
 
+              # SECURITY NOTE — only 'success' satisfies a required check.
+              # 'skipped' and 'neutral' are intentionally treated as FAILURE here.
+              #
+              # GitHub records a job whose if: evaluates false as conclusion:skipped.
+              # A PR author can influence such conditions (draft status, label presence,
+              # branch name). Allowing skipped to pass the qa gate would let an author
+              # bypass a required check by making its if: condition false.
+              #
+              # Contrast with the merge job's pre-merge verification, which uses
+              #   select(.conclusion != "success" and .conclusion != "skipped")
+              # to tolerate swarm's own pipeline jobs (intake, spec, develop, fix,
+              # docs, sweeper) that are legitimately skipped on every PR.  That check
+              # evaluates ALL check-runs on the SHA, not a consumer-declared allowlist,
+              # so skipped must be allowed there.  Do NOT "fix" that inconsistency by
+              # tightening the merge job — it would break every swarm PR immediately.
               case "$check_status" in
-                success|skipped|neutral)
+                success)
                   printf 'qa: check "%s" → %s\n' "$check_name" "$check_status"
                   ;;
-                failure|error|cancelled|timed_out|action_required)
+                failure|error|cancelled|timed_out|action_required|skipped|neutral)
+                  # skipped/neutral are failures here — see SECURITY NOTE above.
                   printf 'qa: check "%s" → %s (FAILED)\n' "$check_name" "$check_status" >&2
                   any_red=true
                   all_green=false
@@ -843,6 +859,19 @@ jobs:
           # Runs that are still in_progress or queued are excluded (the swarm run itself
           # is still running at this point). Any completed run with a non-green conclusion
           # blocks the merge.
+          #
+          # IMPORTANT — this step deliberately allows 'skipped' conclusions.
+          # Swarm's own pipeline jobs (intake, spec, develop, fix, docs, sweeper) are
+          # legitimately skipped on every PR run — they have on:workflow_run triggers
+          # that only fire for their specific stage.  Rejecting skipped here would
+          # break every swarm PR.
+          #
+          # This differs from the qa job's case statement, which only allows 'success'
+          # for consumer-declared required checks.  The distinction is intentional:
+          #   - qa    checks a consumer-declared ALLOWLIST of checks that must have RUN
+          #           and passed — skipped means the check did not run, which is wrong.
+          #   - merge checks ALL check-runs on the SHA and must tolerate pipeline skips.
+          # Do not "fix" the inconsistency by removing skipped from this allow-list.
           head_sha="$(gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
             --jq '.head.sha')"
           check_runs="$(gh api "/repos/${GITHUB_REPOSITORY}/commits/${head_sha}/check-runs" \

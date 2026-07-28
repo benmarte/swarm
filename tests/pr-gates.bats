@@ -1076,6 +1076,118 @@ PYEOF
   [ "$status" -eq 0 ]
 }
 
+# ---------------------------------------------------------------------------
+# skipped/neutral security fix — coordinator finding on PR #73
+#
+# GitHub records a job whose if: evaluates false as conclusion:skipped.
+# A PR author can influence such conditions (draft status, labels, branch name).
+# Concrete attack: consumer requires 'CI / security-scan'; that job has
+# if: github.event.pull_request.draft == false; author opens PR as draft;
+# job is skipped; old code reads skipped as green → gate passed without the
+# check ever running.
+#
+# Fix: only 'success' satisfies a required check.  'skipped' and 'neutral'
+# are both treated as failure.  DO NOT relax this in the merge job's
+# pre-merge verification — that job must tolerate skipped checks on
+# unrelated swarm pipeline jobs (intake, spec, develop, fix, docs, sweeper).
+# ---------------------------------------------------------------------------
+
+@test "pr-gates.yml: qa job treats skipped conclusion as failure not green (security fix)" {
+  # A required check reporting 'skipped' must NOT satisfy the gate.
+  # GitHub records a job whose if: evaluates false as conclusion:skipped.
+  # A PR author can influence such conditions (draft status, labels, branch name).
+  # Verify: the string 'success|skipped' does not appear in the qa case green branch.
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# The green branch of the qa case statement must NOT include 'skipped'.
+# The current pre-fix pattern is 'success|skipped|neutral)' — any pipe-joined
+# combination that contains both 'success' and 'skipped' on one case branch line
+# constitutes the defect.  Check for the pattern as a literal substring since
+# the case statement uses unspaced alternation.
+if "success|skipped" in content or "skipped|success" in content:
+    print("ERROR: 'skipped' is grouped with 'success' in the green case branch — "
+          "a skipped check must produce qa:fail, not qa:pass. "
+          "GitHub records if:false jobs as conclusion:skipped; "
+          "a PR author can influence this via draft status or label conditions.")
+    sys.exit(1)
+
+# 'skipped' must still be present in the file — in the failure branch.
+if "skipped" not in content:
+    print("ERROR: 'skipped' not found anywhere in pr-gates.yml — "
+          "it must appear in the failure branch of the qa case statement")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: qa job treats neutral conclusion as failure by default (security fix)" {
+  # 'neutral' conclusions must NOT satisfy a required check.
+  # Check: no case branch pattern groups 'success' and 'neutral' together
+  # in the green arm (e.g. 'success|skipped|neutral)' or 'success|neutral)').
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# Any pipe-joined case alternation that contains both 'success' and 'neutral'
+# on the same branch constitutes the defect.  The pre-fix pattern is
+# 'success|skipped|neutral)' which is caught by looking for 'neutral)' on
+# the same line that also contains 'success'.
+lines = content.split("\n")
+for i, line in enumerate(lines, 1):
+    stripped = line.strip()
+    # Case branch lines end with ')' in shell; look for the green arm
+    if "success" in stripped and "neutral" in stripped and stripped.endswith(")"):
+        print(f"ERROR: line {i}: 'neutral' is grouped with 'success' in what appears "
+              f"to be the green case branch: {line!r}. "
+              "neutral must produce qa:fail by default.")
+        sys.exit(1)
+
+# 'neutral' must still appear (in the failure branch)
+if "neutral" not in content:
+    print("ERROR: 'neutral' not found anywhere in pr-gates.yml — "
+          "it must appear in the failure branch of the qa case statement")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: merge pre-merge verification still tolerates skipped checks on unrelated jobs" {
+  # REGRESSION GUARD: the merge job's pre-merge verification uses
+  #   select(.conclusion != "success" and .conclusion != "skipped")
+  # to tolerate swarm pipeline jobs (intake, spec, develop, fix, docs, sweeper)
+  # that are legitimately skipped on every PR.  This MUST NOT be tightened.
+  # The qa job and merge job differ intentionally:
+  #   - qa  checks a consumer-declared ALLOWLIST — skipped is never acceptable
+  #   - merge checks ALL check-runs on the SHA — unrelated swarm jobs are skipped
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# The pre-merge verification's jq filter must still allow skipped conclusions
+# for non-required checks.  Look for the characteristic pattern.
+if '.conclusion != "skipped"' not in content and ".conclusion != 'skipped'" not in content:
+    print("ERROR: merge pre-merge verification no longer tolerates 'skipped' conclusions — "
+          "this BREAKS every swarm PR (intake/spec/develop/fix/docs/sweeper all show skipped). "
+          "Only the qa job should reject skipped; the merge job must keep allowing it.")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
 @test "pr-gates.yml: qa job uses config fallback for required_checks (AC2 — issue #72)" {
   # The qa job must honour qa.required_checks from swarm.config.yml via load-config,
   # using the workflow input as override when set.
