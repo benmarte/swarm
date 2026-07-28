@@ -20,6 +20,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ADAPTERS_DIR="$SCRIPT_DIR/adapters"
 SCHEMAS_DIR="$SCRIPT_DIR/../../schemas"
+TEMPLATES_DIR="$SCRIPT_DIR/../../templates/notifications"
 
 # ---------------------------------------------------------------------------
 # Input validation
@@ -64,6 +65,46 @@ if ! validation_output=$(ajv validate -s "$SCHEMA_FILE" -d "$EVENT_FILE" 2>&1); 
   exit 1
 fi
 echo "notify: event JSON is valid"
+
+# ---------------------------------------------------------------------------
+# Render notification template (optional enrichment for adapters)
+# Adapters read NOTIFY_TEXT from the environment to get pre-rendered content
+# including verdict and evidence bullets.  Falls back to .summary when no
+# matching template exists.
+# ---------------------------------------------------------------------------
+_ev_event="$(jq -r '.event' "$EVENT_FILE")"
+_tmpl_file="$TEMPLATES_DIR/${_ev_event}.md"
+# Fall back to transition.md for stage-transition events with no specific template
+if [ ! -f "$_tmpl_file" ]; then
+  _tmpl_file="$TEMPLATES_DIR/transition.md"
+fi
+
+if [ -f "$_tmpl_file" ]; then
+  _role="$(jq -r '.role // .event' "$EVENT_FILE")"
+  _verdict="$(jq -r '.verdict // ""' "$EVENT_FILE")"
+  _evidence="$(jq -r 'if (.evidence // [] | length) > 0 then (.evidence | map("• " + (. | gsub("[\\n\\r]+"; " "))) | join("\n")) else "" end' "$EVENT_FILE")"
+  _repo="$(jq -r '.repo' "$EVENT_FILE")"
+  _issue="$(jq -r '.issue | tostring' "$EVENT_FILE")"
+  _pr="$(jq -r 'if .pr != null then (.pr | tostring) else "" end' "$EVENT_FILE")"
+  _url="$(jq -r '.url' "$EVENT_FILE")"
+  _summary="$(jq -r '.summary' "$EVENT_FILE")"
+  _stage_from="$(jq -r '.stage_from' "$EVENT_FILE")"
+  _stage_to="$(jq -r '.stage_to' "$EVENT_FILE")"
+  _actor="$(jq -r '.actor' "$EVENT_FILE")"
+  NOTIFY_TEXT="$(ROLE="$_role" VERDICT="$_verdict" EVIDENCE="$_evidence" \
+    REPO="$_repo" ISSUE="$_issue" PR="$_pr" URL="$_url" SUMMARY="$_summary" \
+    STAGE_FROM="$_stage_from" STAGE_TO="$_stage_to" ACTOR="$_actor" \
+    EVENT="$_ev_event" \
+    python3 -c '
+import os, string, sys
+with open(sys.argv[1]) as f:
+    t = string.Template(f.read())
+rendered = t.safe_substitute(os.environ).strip()
+print(rendered)
+' "$_tmpl_file" 2>/dev/null)" || NOTIFY_TEXT="$(jq -r '.summary' "$EVENT_FILE")"
+  export NOTIFY_TEXT
+  echo "notify: rendered notification template for event: $_ev_event"
+fi
 
 # ---------------------------------------------------------------------------
 # Fan-out to enabled sinks

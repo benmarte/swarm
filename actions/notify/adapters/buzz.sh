@@ -8,10 +8,19 @@
 # `nak` answers the relay's NIP-42 AUTH challenge automatically with --auth.
 # Threading (NIP-10 reply tags) is not used in v1 — root posts only.
 #
+# Message content (talos-parity):
+#   Uses NOTIFY_TEXT if set (pre-rendered by notify.sh with verdict/evidence).
+#   Falls back to building the message from raw event JSON fields, including
+#   role, verdict, evidence bullets, and all standard fields.
+#
 # Required env:
 #   SWARM_BUZZ_RELAY_URL    — wss:// relay URL for the buzz instance
 #   SWARM_BUZZ_PRIVATE_KEY  — hex or nsec Nostr private key for the bot
 #   BUZZ_CHANNEL            — NIP-29 channel UUID (from swarm.config.yml)
+#
+# Optional env:
+#   NOTIFY_TEXT — pre-rendered notification text (set by notify.sh template
+#                 rendering). When present, used as the message body.
 #
 # Argument:
 #   $1 — path to the canonical event JSON file
@@ -49,18 +58,26 @@ if ! command -v "$NAK_BIN" >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# Build plain markdown message from canonical event fields
+# Build plain markdown message: use NOTIFY_TEXT when available (preferred),
+# else build from raw event fields including optional role/verdict/evidence.
 # ---------------------------------------------------------------------------
-TEXT=$(jq -r \
-  '"**swarm: " + .event + "**\n" +
-   "**Repo:** " + .repo + " · " +
-   "**Issue:** #" + (.issue | tostring) +
-   (if .pr != null then " · **PR:** #" + (.pr | tostring) else "" end) + "\n" +
-   "**Stage:** `" + .stage_from + "` → `" + .stage_to + "`\n" +
-   "**Actor:** " + .actor + "\n" +
-   .summary + "\n" +
-   .url' \
-  "$EVENT_FILE")
+_notify_text="${NOTIFY_TEXT:-}"
+if [ -n "$_notify_text" ]; then
+  TEXT="$_notify_text"
+else
+  TEXT=$(jq -r \
+    '"**swarm: " + .event + "**\n" +
+     "**Repo:** " + .repo + " · " +
+     "**Issue:** #" + (.issue | tostring) +
+     (if .pr != null then " · **PR:** #" + (.pr | tostring) else "" end) + "\n" +
+     (if .role then "**Role:** " + .role + (if .verdict then " | **Verdict:** " + .verdict else "" end) + "\n" else "" end) +
+     "**Stage:** `" + .stage_from + "` -> `" + .stage_to + "`\n" +
+     "**Actor:** " + .actor + "\n" +
+     (if (.evidence // [] | length) > 0 then (.evidence | map("• " + (. | gsub("[\\n\\r]+"; " "))) | join("\n")) + "\n" else "" end) +
+     .summary + "\n" +
+     .url' \
+    "$EVENT_FILE")
+fi
 
 # ---------------------------------------------------------------------------
 # Publish kind:9 event to the buzz relay (root post, no threading in v1)

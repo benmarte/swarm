@@ -1,0 +1,34 @@
+# swarm.config.yml — behavior config committed in your consumer repo.
+# Validate with: ajv validate -s schemas/config.schema.json -d swarm.config.yml
+# Secrets (SWARM_GITHUB_TOKEN, ANTHROPIC_API_KEY, etc.) must NOT appear here.
+# See .env.example for all secret names. See SPEC §2.6 for the full model.
+
+notify:
+  # Uncomment the sinks you have configured in your .env / GitHub Secrets:
+  # slack: true
+  # discord: true
+  # teams: true
+  # buzz_channel: "your-nostr-channel-uuid-here"
+
+# adapters:
+#   validator:
+#     adapter: claude
+#     model: claude-opus-4-5
+#   pm:
+#     adapter: claude
+#     model: claude-opus-4-5
+
+develop:
+  adapter: claude-code-action
+
+# SWARM_LLM_BASE_URL: "http://localhost:11434/v1"  # openai-compat only
+
+qa:
+  required_checks:
+    - CI
+
+runner:
+  label: swarm-agent
+
+sweeper:
+  schedule: "0 2 * * *"

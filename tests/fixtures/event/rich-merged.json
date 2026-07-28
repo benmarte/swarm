@@ -1,0 +1,19 @@
+{
+  "event": "merged",
+  "repo": "benmarte/swarm",
+  "issue": 7,
+  "pr": 14,
+  "stage_from": "swarm:review",
+  "stage_to": "swarm:done",
+  "actor": "benmarte",
+  "url": "https://github.com/benmarte/swarm/pull/14",
+  "summary": "PR #14 merged; all pipeline stages passed.",
+  "role": "orchestrator",
+  "verdict": "merged",
+  "evidence": [
+    "validator confirmed",
+    "reviewer approved",
+    "security signed off",
+    "QA passed"
+  ]
+}
