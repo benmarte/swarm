@@ -619,9 +619,11 @@ last line"
     bash "$REPO_ROOT/actions/agent-run/agent-run.sh"
   rm -rf "$fake_root"
 
-  # Adapter failure must propagate, not be retried into a loop
-  [ "$status" -ne 0 ]
-  # ...and must not leave a partial outcome behind
+  # The adapter's exact exit code must survive the EXIT trap. `exit "$rc"`
+  # inside a trap is easy to get wrong, and a masked code would turn a hard
+  # adapter failure into a different (or worse, zero) status downstream.
+  [ "$status" -eq 3 ]
+  # ...and no partial outcome may be left behind
   [ ! -f "$GITHUB_WORKSPACE/outcome.json" ]
 }
 
