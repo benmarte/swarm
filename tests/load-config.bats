@@ -308,6 +308,44 @@ get_output() {
 # Structural: no engine-asset paths built from GITHUB_WORKSPACE in actions/
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# qa-required-checks output (issue #72)
+# Tests below FAIL before the fix; pass after.
+# ---------------------------------------------------------------------------
+
+@test "load-config action.yml declares qa-required-checks output (issue #72)" {
+  ACTION="$REPO_ROOT/actions/load-config/action.yml"
+  run grep -q "qa-required-checks" "$ACTION"
+  [ "$status" -eq 0 ]
+}
+
+@test "load-config.sh exports qa-required-checks output (issue #72)" {
+  run grep -q "qa-required-checks\|qa_required_checks" "$LOAD_CONFIG_SH"
+  [ "$status" -eq 0 ]
+}
+
+@test "valid full config exports qa-required-checks as comma-separated string (issue #72)" {
+  # valid.yml has: qa: { required_checks: ["CI / ci", "actionlint"] }
+  # Expected output: "CI / ci,actionlint"
+  export CONFIG_FILE="$FIXTURES/valid.yml"
+  run bash "$LOAD_CONFIG_SH"
+  [ "$status" -eq 0 ]
+  qa_checks="$(get_output qa-required-checks)"
+  # Must be non-empty and contain both check names joined by comma
+  [ -n "$qa_checks" ]
+  printf '%s' "$qa_checks" | grep -q "CI / ci"
+  printf '%s' "$qa_checks" | grep -q "actionlint"
+}
+
+@test "valid minimal config exports empty qa-required-checks (issue #72)" {
+  # Minimal config has no qa section — output must be empty (AC4: degrade cleanly)
+  export CONFIG_FILE="$FIXTURES/valid-minimal.yml"
+  run bash "$LOAD_CONFIG_SH"
+  [ "$status" -eq 0 ]
+  qa_checks="$(get_output qa-required-checks)"
+  [ -z "$qa_checks" ]
+}
+
 @test "structural: no GITHUB_WORKSPACE-relative engine-asset reads in actions/" {
   # schemas/, prompts/ are engine assets — must never be accessed via
   # GITHUB_WORKSPACE. Runtime output files (outcome.json, GITHUB_OUTPUT)

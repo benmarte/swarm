@@ -56,6 +56,12 @@ outputs:
       Whether per-stage findings comments are posted on issues and PRs.
       Defaults to "true" when comments.enabled is absent from config.
     value: ${{ steps.load.outputs.comments-enabled }}
+  qa-required-checks:
+    description: >
+      Comma-separated check names from qa.required_checks in swarm.config.yml.
+      Empty when the qa.required_checks key is absent. Consumed by the qa job
+      in pr-gates.yml as the config fallback (workflow input wins when set).
+    value: ${{ steps.load.outputs.qa-required-checks }}
 
 runs:
   using: composite
