@@ -8,7 +8,7 @@
   "additionalProperties": false,
   "properties": {
     "notify": {
-      "type": "object",
+      "type": ["object", "null"],
       "additionalProperties": false,
       "properties": {
         "buzz_channel": {
@@ -43,7 +43,7 @@
       }
     },
     "adapters": {
-      "type": "object",
+      "type": ["object", "null"],
       "additionalProperties": false,
       "description": "Per-role agent-run adapter overrides.",
       "properties": {
@@ -56,7 +56,7 @@
       }
     },
     "develop": {
-      "type": "object",
+      "type": ["object", "null"],
       "additionalProperties": false,
       "description": "Develop-stage adapter configuration.",
       "properties": {
@@ -72,7 +72,7 @@
       "description": "Base URL for OpenAI-compatible LLM endpoint (Ollama, LM Studio, vLLM). Not a secret."
     },
     "qa": {
-      "type": "object",
+      "type": ["object", "null"],
       "additionalProperties": false,
       "properties": {
         "required_checks": {
@@ -84,7 +84,7 @@
       }
     },
     "runner": {
-      "type": "object",
+      "type": ["object", "null"],
       "additionalProperties": false,
       "properties": {
         "label": {
@@ -95,7 +95,7 @@
       }
     },
     "sweeper": {
-      "type": "object",
+      "type": ["object", "null"],
       "additionalProperties": false,
       "properties": {
         "schedule": {
@@ -106,7 +106,7 @@
       }
     },
     "comments": {
-      "type": "object",
+      "type": ["object", "null"],
       "additionalProperties": false,
       "description": "Per-stage findings comment settings.",
       "properties": {
