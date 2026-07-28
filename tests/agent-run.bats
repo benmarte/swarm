@@ -603,3 +603,33 @@ last line"
   # ...while the naive line-count would have said 2
   [ "$(grep -c '^claude ' "$CLAUDE_STUB_LOG")" -eq 2 ]
 }
+
+@test "agent-run: adapter that writes a partial file then fails leaves no outcome.json" {
+  # The adapter-failure path aborts via `set -e` and never reaches an explicit
+  # rm, so per-exit-point cleanup misses it. Only the EXIT trap covers this.
+  fake_root="$(mktemp -d)"
+  mkdir -p "$fake_root/actions/agent-run/adapters" "$fake_root/actions/validate-outcome" "$fake_root/schemas"
+  ln -s "$REPO_ROOT/actions/validate-outcome/validate.sh" "$fake_root/actions/validate-outcome/validate.sh"
+  ln -s "$REPO_ROOT/schemas/outcome.schema.json" "$fake_root/schemas/outcome.schema.json"
+  printf '#!/usr/bin/env bash\nprintf %s "{\\"schema\\":\\"swarm/outcome@1\\"" > "$OUTCOME_FILE"\nexit 3\n' \
+    > "$fake_root/actions/agent-run/adapters/claude.sh"
+  chmod +x "$fake_root/actions/agent-run/adapters/claude.sh"
+
+  run env ACTION_PATH="$fake_root/actions/agent-run" \
+    bash "$REPO_ROOT/actions/agent-run/agent-run.sh"
+  rm -rf "$fake_root"
+
+  # Adapter failure must propagate, not be retried into a loop
+  [ "$status" -ne 0 ]
+  # ...and must not leave a partial outcome behind
+  [ ! -f "$GITHUB_WORKSPACE/outcome.json" ]
+}
+
+@test "agent-run: success path preserves a valid outcome.json" {
+  # Guard against the cleanup trap over-reaching: the file must survive when
+  # the run actually succeeds, since downstream steps consume it.
+  run bash "$AGENT_RUN_SH"
+  [ "$status" -eq 0 ]
+  [ -f "$OUTCOME_FILE" ]
+  jq -e '.schema == "swarm/outcome@1"' "$OUTCOME_FILE" > /dev/null
+}

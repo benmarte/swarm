@@ -150,7 +150,23 @@ if ! printf '%s' "$SWARM_OUTCOME_ATTEMPTS" | grep -qE '^[1-9][0-9]*$'; then
 fi
 
 validation_log="$(mktemp)"
-trap 'rm -f "$validation_log"' EXIT
+
+# A failed run must leave NO outcome.json behind — rejected, partial or
+# half-written — because a later step could read it as authoritative.
+#
+# This is enforced structurally rather than at each exit point on purpose: the
+# adapter-failure path aborts via `set -e` and never reaches an explicit `rm`,
+# so per-path cleanup provably misses it (an adapter that writes a partial file
+# and then exits non-zero leaked one).
+_cleanup() {
+  rc=$?
+  rm -f "$validation_log"
+  if [ "$rc" -ne 0 ]; then
+    rm -f "$OUTCOME_FILE"
+  fi
+  exit "$rc"
+}
+trap _cleanup EXIT
 
 attempt=1
 while : ; do
@@ -171,10 +187,8 @@ while : ; do
   cat "$validation_log" >&2
 
   if [ "$attempt" -ge "$SWARM_OUTCOME_ATTEMPTS" ]; then
-    # Remove the rejected file here too, not only between retries. A rejected
-    # outcome must never survive this script under ANY exit path — a later step
-    # running on failure would otherwise read it as authoritative.
-    rm -f "$OUTCOME_FILE"
+    # The rejected file is removed by the EXIT trap, which covers every
+    # non-zero exit including this one.
     echo "agent-run: ERROR: outcome.json still schema-invalid after ${SWARM_OUTCOME_ATTEMPTS} attempt(s)" >&2
     echo "  The last validation error is shown above." >&2
     echo "  Raise SWARM_OUTCOME_ATTEMPTS, or check that the model can honour schemas/outcome.schema.json." >&2
