@@ -53,8 +53,13 @@ def single(key, default=""):
     return os.environ.get(key, default).replace('\r', '').replace('\n', ' ').strip()
 
 def multi(key, default=""):
-    """Multi-line field: strip only carriage returns."""
-    return os.environ.get(key, default).replace('\r', '')
+    """Multi-line field: strip carriage returns and collapse double-newlines.
+    Double-newlines (blank lines) in substituted values are an injection vector —
+    they create standalone markdown paragraphs that can forge pipeline headers.
+    Callers must pre-sanitize individual values (e.g., via jq gsub) before
+    assembling DETAILS; this collapses any residual blank lines as a second layer.
+    """
+    return os.environ.get(key, default).replace('\r', '').replace('\n\n', '\n')
 
 mapping = {
     "HEADER":  multi("HEADER"),

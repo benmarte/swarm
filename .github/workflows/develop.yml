@@ -308,7 +308,7 @@ jobs:
             --json url --jq '.[0].url // ""')"
           pr_title_delim="swarm_$(openssl rand -hex 16)"
           {
-            printf 'pr-url<<%s\n' "$pr_title_delim"
+            printf 'pr-title<<%s\n' "$pr_title_delim"
             gh pr list --repo "$GITHUB_REPOSITORY" \
               --head "swarm/issue-${ISSUE_NUMBER}" --state all \
               --json title --jq '.[0].title // ""'
@@ -326,7 +326,7 @@ jobs:
         env:
           ISSUE_NUMBER: ${{ inputs.issue }}
           PR: ${{ steps.find-pr.outputs.pr-link }}
-          SUMMARY: ${{ steps.find-pr.outputs.pr-url }}
+          SUMMARY: ${{ steps.find-pr.outputs.pr-title }}
           HEADER: "**swarm developer**"
           DETAILS: ""
         run: |

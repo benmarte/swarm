@@ -234,7 +234,7 @@ jobs:
           {
             printf 'details<<%s\n' "$details_delim"
             jq -r '.evidence | to_entries | map(select(.key != "summary")) | .[] |
-              "- **\(.key):** \(if (.value | type) == "array" then (.value | join(", ")) else (.value | tostring) end)"' \
+              "- **\(.key):** \(if (.value | type) == "array" then (.value | map(tostring | gsub("[\\n\\r]+"; " ")) | join(", ")) else (.value | tostring | gsub("[\\n\\r]+"; " ")) end)"' \
               outcome.json
             printf '%s\n' "$details_delim"
           } >> "$GITHUB_OUTPUT"
@@ -459,7 +459,7 @@ jobs:
           {
             printf 'details<<%s\n' "$details_delim"
             jq -r '.evidence | to_entries | map(select(.key != "summary")) | .[] |
-              "- **\(.key):** \(if (.value | type) == "array" then (.value | join(", ")) else (.value | tostring) end)"' \
+              "- **\(.key):** \(if (.value | type) == "array" then (.value | map(tostring | gsub("[\\n\\r]+"; " ")) | join(", ")) else (.value | tostring | gsub("[\\n\\r]+"; " ")) end)"' \
               outcome.json
             printf '%s\n' "$details_delim"
           } >> "$GITHUB_OUTPUT"

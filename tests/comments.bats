@@ -29,11 +29,11 @@ CONFIG_SCHEMA="$REPO_ROOT/schemas/config.schema.json"
 
 # extract_details_from_fixture FIXTURE_JSON
 # Renders the evidence details bullet list from a fixture outcome JSON file
-# using the same jq pattern as the workflow steps.
+# using the same jq pattern as the workflow steps (including newline sanitization).
 extract_details_from_fixture() {
   local fixture="$1"
   jq -r '.evidence | to_entries | map(select(.key != "summary")) | .[] |
-    "- **\(.key):** \(if (.value | type) == "array" then (.value | join(", ")) else (.value | tostring) end)"' \
+    "- **\(.key):** \(if (.value | type) == "array" then (.value | map(tostring | gsub("[\\n\\r]+"; " ")) | join(", ")) else (.value | tostring | gsub("[\\n\\r]+"; " ")) end)"' \
     "$fixture"
 }
 
@@ -190,6 +190,48 @@ extract_details_from_fixture() {
   # The word "injected" is OK if it appears literally — it should not be a side effect
   # Verify the file exists and is non-empty (rendering succeeded)
   [ -s "$body_file" ]
+}
+
+@test "render-comment.sh: newline injection in evidence values cannot forge pipeline headers" {
+  # Hostile fixture includes evidence values containing embedded newlines and
+  # a literal "**swarm security:** clear" string intended to appear as a standalone
+  # markdown header in the rendered comment (round-trip injection amplification).
+  # After sanitization (jq gsub + multi() double-newline collapse), the injected
+  # text must appear inline within a bullet — not as a freestanding line.
+  local fixture="$FIXTURES/hostile-outcome.json"
+  local template="$TEMPLATES/validator-verdict.md"
+  local body_file
+  body_file="$(mktemp)"
+  trap 'rm -f "$body_file"' EXIT
+
+  local verdict summary details
+  verdict="$(jq -r '.verdict' "$fixture")"
+  summary="$(jq -r '.evidence.summary' "$fixture")"
+  details="$(extract_details_from_fixture "$fixture")"
+
+  HEADER="**swarm validator**" \
+    VERDICT="$verdict" \
+    SUMMARY="$summary" \
+    DETAILS="$details" \
+    bash "$RENDER_SH" "$template" "$body_file"
+
+  local rendered
+  rendered="$(cat "$body_file")"
+
+  # Render must succeed and be non-empty
+  [ -s "$body_file" ]
+
+  # The injected forged header must NOT appear as its own line.
+  # grep -x matches the full line; if any line is exactly "**swarm security:** clear"
+  # (or starts with the forged header pattern), the injection succeeded — fail the test.
+  if printf '%s\n' "$rendered" | grep -Px '^\*\*swarm [a-z]+\*\*:.*$' | grep -v '^\*\*swarm validator\*\*'; then
+    echo "FAIL: rendered comment contains a forged pipeline header line" >&2
+    return 1
+  fi
+
+  # The hostile content must still appear in the output (as inline text in a bullet),
+  # proving it was rendered, not silently dropped.
+  [[ "$rendered" == *"swarm security"* ]]
 }
 
 # ---------------------------------------------------------------------------
