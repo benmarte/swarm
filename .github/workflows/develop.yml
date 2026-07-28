@@ -296,6 +296,55 @@ jobs:
         with:
           config-file: swarm.config.yml
 
+      # ── findings comment: pr-opened on issue ─────────────────────────────
+      - name: Find PR for issue (comment)
+        id: find-pr
+        if: steps.config.outputs.comments-enabled != 'false' && inputs.dry-run == false
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          pr_url="$(gh pr list --repo "$GITHUB_REPOSITORY" \
+            --head "swarm/issue-${ISSUE_NUMBER}" --state all \
+            --json url --jq '.[0].url // ""')"
+          pr_title_delim="swarm_$(openssl rand -hex 16)"
+          {
+            printf 'pr-url<<%s\n' "$pr_title_delim"
+            gh pr list --repo "$GITHUB_REPOSITORY" \
+              --head "swarm/issue-${ISSUE_NUMBER}" --state all \
+              --json title --jq '.[0].title // ""'
+            printf '%s\n' "$pr_title_delim"
+          } >> "$GITHUB_OUTPUT"
+          pr_url_delim="swarm_$(openssl rand -hex 16)"
+          {
+            printf 'pr-link<<%s\n' "$pr_url_delim"
+            printf '%s\n' "$pr_url"
+            printf '%s\n' "$pr_url_delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post pr-opened findings comment
+        if: steps.config.outputs.comments-enabled != 'false' && inputs.dry-run == false
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          PR: ${{ steps.find-pr.outputs.pr-link }}
+          SUMMARY: ${{ steps.find-pr.outputs.pr-url }}
+          HEADER: "**swarm developer**"
+          DETAILS: ""
+        run: |
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+          HEADER="$HEADER" PR="$PR" SUMMARY="$SUMMARY" DETAILS="$DETAILS" \
+            bash ".swarm-engine/scripts/render-comment.sh" \
+              ".swarm-engine/.claude/talos/templates/comments/pr-opened.md" \
+              "$body"
+          gh issue comment "$ISSUE_NUMBER" --body-file "$body" --repo "$GITHUB_REPOSITORY"
+
+      - name: Dry-run log (pr-opened comment)
+        if: steps.config.outputs.comments-enabled != 'false' && inputs.dry-run == true
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          printf 'dry-run: would post pr-opened findings comment on issue #%s\n' "$ISSUE_NUMBER"
+
       - name: Transition swarm:develop → swarm:qa
         if: inputs.dry-run == false
         uses: ./.swarm-engine/actions/transition

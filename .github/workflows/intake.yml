@@ -118,6 +118,9 @@ jobs:
     outputs:
       verdict: ${{ steps.read-outcome.outputs.verdict }}
       runner-label: ${{ steps.config.outputs.runner-label }}
+      summary: ${{ steps.read-outcome.outputs.summary }}
+      details: ${{ steps.read-outcome.outputs.details }}
+      comments-enabled: ${{ steps.config.outputs.comments-enabled }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       SWARM_LLM_MODEL: ${{ inputs.model }}
@@ -175,8 +178,18 @@ jobs:
       - name: Read outcome verdict
         id: read-outcome
         run: |
-          verdict="$(jq -r '.verdict' outcome.json)"
+          verdict="$(jq -r '.verdict' outcome.json | tr -d '\n\r')"
           printf 'verdict=%s\n' "$verdict" >> "$GITHUB_OUTPUT"
+          summary="$(jq -r '.evidence.summary // ""' outcome.json | tr -d '\n\r')"
+          printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
+          details_delim="swarm_$(openssl rand -hex 16)"
+          {
+            printf 'details<<%s\n' "$details_delim"
+            jq -r '.evidence | to_entries | map(select(.key != "summary")) | .[] |
+              "- **\(.key):** \(if (.value | type) == "array" then (.value | join(", ")) else (.value | tostring) end)"' \
+              outcome.json
+            printf '%s\n' "$details_delim"
+          } >> "$GITHUB_OUTPUT"
 
   route:
     name: Route verdict
@@ -210,6 +223,33 @@ jobs:
         uses: ./.swarm-engine/actions/load-config
         with:
           config-file: swarm.config.yml
+
+      # ── findings comment: validator verdict on issue ──────────────────────
+      - name: Post validator findings comment
+        if: needs.agent.outputs.comments-enabled != 'false' && inputs.dry-run == false
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          VERDICT: ${{ needs.agent.outputs.verdict }}
+          SUMMARY: ${{ needs.agent.outputs.summary }}
+          DETAILS: ${{ needs.agent.outputs.details }}
+          HEADER: "**swarm validator**"
+        run: |
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+          HEADER="$HEADER" VERDICT="$VERDICT" SUMMARY="$SUMMARY" DETAILS="$DETAILS" \
+            bash ".swarm-engine/scripts/render-comment.sh" \
+              ".swarm-engine/.claude/talos/templates/comments/validator-verdict.md" \
+              "$body"
+          gh issue comment "$ISSUE_NUMBER" --body-file "$body" --repo "$GITHUB_REPOSITORY"
+
+      - name: Dry-run log (validator comment)
+        if: needs.agent.outputs.comments-enabled != 'false' && inputs.dry-run == true
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          VERDICT: ${{ needs.agent.outputs.verdict }}
+          SUMMARY: ${{ needs.agent.outputs.summary }}
+        run: |
+          printf 'dry-run: would post validator findings comment on issue #%s (verdict=%s)\n' "$ISSUE_NUMBER" "$VERDICT"
 
       # ── confirmed: advance to swarm:spec ──────────────────────────────────
       - name: Transition confirmed → swarm:spec

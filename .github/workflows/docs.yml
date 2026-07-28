@@ -125,6 +125,8 @@ jobs:
     outputs:
       verdict: ${{ steps.read-outcome.outputs.verdict }}
       summary: ${{ steps.read-outcome.outputs.summary }}
+      details: ${{ steps.read-outcome.outputs.details }}
+      comments-enabled: ${{ steps.config.outputs.comments-enabled }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       SWARM_LLM_MODEL: ${{ inputs.model }}
@@ -203,6 +205,14 @@ jobs:
           printf 'verdict=%s\n' "$verdict" >> "$GITHUB_OUTPUT"
           summary="$(jq -r '.evidence.summary // ""' outcome.json | tr -d '\n\r')"
           printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
+          details_delim="swarm_$(openssl rand -hex 16)"
+          {
+            printf 'details<<%s\n' "$details_delim"
+            jq -r '.evidence | to_entries | map(select(.key != "summary")) | .[] |
+              "- **\(.key):** \(if (.value | type) == "array" then (.value | join(", ")) else (.value | tostring) end)"' \
+              outcome.json
+            printf '%s\n' "$details_delim"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Enforce skipped-requires-reason
         # Deterministic structural check: if verdict=skipped and evidence.reason
@@ -239,35 +249,32 @@ jobs:
           path: .swarm-engine
           persist-credentials: false
 
-      - name: Post docs summary comment
-        if: inputs.dry-run == false
+      # ── findings comment: docs-posted on issue ────────────────────────────
+      - name: Post docs findings comment
+        if: needs.agent.outputs.comments-enabled != 'false' && inputs.dry-run == false
         env:
           ISSUE_NUMBER: ${{ inputs.issue }}
           VERDICT: ${{ needs.agent.outputs.verdict }}
           SUMMARY: ${{ needs.agent.outputs.summary }}
+          DETAILS: ${{ needs.agent.outputs.details }}
+          HEADER: "**swarm docs**"
         run: |
-          case "$VERDICT" in
-            done)
-              msg="**swarm docs:** ${SUMMARY}"
-              ;;
-            skipped)
-              msg="**swarm docs (skipped):** ${SUMMARY}"
-              ;;
-            *)
-              printf 'ERROR: unexpected docs verdict: %s\n' "$VERDICT" >&2
-              exit 1
-              ;;
-          esac
-          gh issue comment "$ISSUE_NUMBER" --body "$msg" --repo "$GITHUB_REPOSITORY"
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+          HEADER="$HEADER" VERDICT="$VERDICT" SUMMARY="$SUMMARY" DETAILS="$DETAILS" \
+            bash ".swarm-engine/scripts/render-comment.sh" \
+              ".swarm-engine/.claude/talos/templates/comments/docs-posted.md" \
+              "$body"
+          gh issue comment "$ISSUE_NUMBER" --body-file "$body" --repo "$GITHUB_REPOSITORY"
 
       - name: Dry-run log (docs comment)
-        if: inputs.dry-run == true
+        if: needs.agent.outputs.comments-enabled != 'false' && inputs.dry-run == true
         env:
           ISSUE_NUMBER: ${{ inputs.issue }}
           VERDICT: ${{ needs.agent.outputs.verdict }}
           SUMMARY: ${{ needs.agent.outputs.summary }}
         run: |
-          printf 'dry-run: docs verdict=%s — would comment on issue #%s: %s\n' \
+          printf 'dry-run: docs verdict=%s — would post docs findings comment on issue #%s: %s\n' \
             "$VERDICT" "$ISSUE_NUMBER" "$SUMMARY"
 
       - name: Transition swarm:docs → swarm:done
@@ -293,16 +300,32 @@ jobs:
         env:
           ISSUE_NUMBER: ${{ inputs.issue }}
         run: |
-          gh issue close "$ISSUE_NUMBER" \
-            --comment "Issue closed by swarm docs workflow after documentation stage completed." \
-            --repo "$GITHUB_REPOSITORY"
+          gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY"
+
+      # ── findings comment: issue-closed on issue ────────────────────────────
+      - name: Post issue-closed findings comment
+        if: needs.agent.outputs.comments-enabled != 'false' && inputs.dry-run == false
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          PR: ${{ inputs.pr }}
+          HEADER: "**swarm**"
+          SUMMARY: ${{ needs.agent.outputs.summary }}
+          DETAILS: ""
+        run: |
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+          HEADER="$HEADER" PR="PR #${PR}" SUMMARY="$SUMMARY" DETAILS="$DETAILS" \
+            bash ".swarm-engine/scripts/render-comment.sh" \
+              ".swarm-engine/.claude/talos/templates/comments/issue-closed.md" \
+              "$body"
+          gh issue comment "$ISSUE_NUMBER" --body-file "$body" --repo "$GITHUB_REPOSITORY"
 
       - name: Dry-run log (close)
         if: inputs.dry-run == true
         env:
           ISSUE_NUMBER: ${{ inputs.issue }}
         run: |
-          printf 'dry-run: would close issue #%s\n' "$ISSUE_NUMBER"
+          printf 'dry-run: would close issue #%s and post issue-closed comment\n' "$ISSUE_NUMBER"
 
       - name: Unexpected verdict (fail)
         if: |
