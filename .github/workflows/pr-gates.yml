@@ -23,7 +23,7 @@
 #   adapter         (string, default: claude)     Agent adapter forwarded to agent-run.
 #   model           (string, default: "")         LLM model identifier.
 #   maintainer      (string, default: "")         Reserved; unused in this workflow.
-#   qa-required-checks (string, default: "")      Reserved — pending #10.
+#   qa-required-checks (string, default: "")      Comma-separated required check names.
 #   enabled-sinks   (string, default: "")         Comma-separated notify sinks. Derived from load-config.
 #   buzz-channel    (string, default: "")         Buzz/Nostr channel UUID. Derived from load-config.
 #   engine-repo     (string, default: benmarte/swarm) Engine repository (org/repo). Override for forks.

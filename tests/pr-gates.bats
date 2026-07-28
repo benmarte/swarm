@@ -1268,3 +1268,20 @@ PYEOF
   [ "$status" -eq 0 ]
   [ "$output" = "pending" ]
 }
+
+@test "pr-gates.yml: no stale 'pending #N' markers anywhere in the file" {
+  # The narrower test above only inspects the qa-required-checks description
+  # block. It passed while the HEADER comment still advertised the input as
+  # "Reserved — pending #10" — stale, and actively wrong once the input became
+  # the core of the QA gate.
+  #
+  # This matters beyond tidiness: issue #72 went unnoticed for exactly this
+  # reason. A marker that reads as a plan looks like intent rather than a gap,
+  # so nobody audits it. #10 shipped as unrelated work and the reservation was
+  # never redeemed.
+  run grep -n "pending #[0-9]" "$PR_GATES"
+  [ "$status" -ne 0 ] || {
+    echo "# stale marker(s) found: $output" >&3
+    false
+  }
+}
