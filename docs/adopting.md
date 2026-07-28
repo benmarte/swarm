@@ -234,6 +234,18 @@ The `buzz_channel` value is the NIP-29 channel UUID — it is behavior config, n
 
 All four sinks are opt-in. Enable each by seeding its secret(s) and uncommenting the matching key in `swarm.config.yml notify:`.
 
+**Channel ID as enablement signal (Slack + Discord bot-token mode)**
+
+For Slack and Discord bot-token mode, setting a channel ID in config is sufficient to enable the sink — you do not also need `slack: true` or `discord: true`. This matches the `buzz_channel` pattern:
+
+```yaml
+notify:
+  slack_channel: C0123456789   # enables Slack even if slack: false or slack is absent
+  discord_channel: "123456789012345678"   # enables Discord even if discord: false or absent
+```
+
+If you set `slack: false` but also set `slack_channel`, the channel wins and the sink is enabled. To truly disable a bot-token sink, remove the channel key from config.
+
 **Slack — webhook mode** (simplest)
 
 1. Create an incoming webhook URL in your Slack workspace.

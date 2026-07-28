@@ -4,7 +4,8 @@
 # Records the request body (-d / --data) to $CURL_BODY_LOG (one payload per line, JSON).
 # Records -H headers (names only, never values) to $CURL_HEADER_LOG.
 # Returns CURL_STUB_STATUS exit code (default 0).
-# If CURL_STUB_RESPONSE is set, prints it; otherwise silent.
+# If CURL_STUB_RESPONSE is set, writes it to --output <file> when present,
+# otherwise prints it to stdout.
 #
 # Secret hygiene: header values are intentionally NOT logged. Tests must only
 # assert on header name presence (e.g. "Authorization") — never on the value.
@@ -16,9 +17,10 @@ HEADER_LOG="${CURL_HEADER_LOG:-/tmp/curl-header.log}"
 # Record full argv
 echo "curl $*" >> "$LOG"
 
-# Parse argv to extract -d body and -H header names
+# Parse argv to extract -d body, -H header names, and -o/--output file
 args=("$@")
 body=""
+output_file=""
 i=0
 while [ $i -lt ${#args[@]} ]; do
   arg="${args[$i]}"
@@ -41,6 +43,13 @@ while [ $i -lt ${#args[@]} ]; do
       header_name="${header_val%%:*}"
       echo "$header_name" >> "$HEADER_LOG"
       ;;
+    -o|--output)
+      i=$((i+1))
+      output_file="${args[$i]:-}"
+      ;;
+    -o*)
+      output_file="${arg#-o}"
+      ;;
   esac
   i=$((i+1))
 done
@@ -50,7 +59,12 @@ if [ -n "$body" ]; then
 fi
 
 if [ -n "${CURL_STUB_RESPONSE:-}" ]; then
-  echo "$CURL_STUB_RESPONSE"
+  if [ -n "$output_file" ] && [ "$output_file" != "/dev/null" ]; then
+    # Write response to the --output file, matching real curl behaviour
+    printf '%s\n' "$CURL_STUB_RESPONSE" > "$output_file"
+  else
+    echo "$CURL_STUB_RESPONSE"
+  fi
 fi
 
 exit "${CURL_STUB_STATUS:-0}"

@@ -23,7 +23,8 @@
         "slack_channel": {
           "type": "string",
           "minLength": 1,
-          "description": "Slack channel ID for bot-token mode (e.g. C0123456789). Non-secret behavior config. Required when using SWARM_SLACK_BOT_TOKEN instead of SWARM_SLACK_WEBHOOK."
+          "pattern": "^[A-Za-z0-9]+$",
+          "description": "Slack channel ID for bot-token mode (e.g. C0123456789). Non-secret behavior config. Required when using SWARM_SLACK_BOT_TOKEN instead of SWARM_SLACK_WEBHOOK. Must be alphanumeric only (no slashes, dots, or special chars)."
         },
         "discord": {
           "type": "boolean",
@@ -32,7 +33,8 @@
         "discord_channel": {
           "type": "string",
           "minLength": 1,
-          "description": "Discord channel ID for bot-token mode (e.g. 123456789012345678). Non-secret behavior config. Required when using SWARM_DISCORD_BOT_TOKEN instead of SWARM_DISCORD_WEBHOOK."
+          "pattern": "^[0-9]{17,20}$",
+          "description": "Discord channel ID (snowflake) for bot-token mode (e.g. 123456789012345678). Non-secret behavior config. Required when using SWARM_DISCORD_BOT_TOKEN instead of SWARM_DISCORD_WEBHOOK. Must be 17-20 digits only."
         },
         "teams": {
           "type": "boolean",

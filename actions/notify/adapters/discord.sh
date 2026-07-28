@@ -11,12 +11,20 @@
 #                       Non-2xx HTTP status codes are treated as hard failures.
 #   Neither set      → loud exit 1 naming both options.
 #
+# NOTE: a non-empty DISCORD_CHANNEL enables bot-token mode even when
+# notify.discord is false in swarm.config.yml — channel presence wins.
+# This is intentional and consistent with buzz_channel behaviour.
+#
+# DISCORD_CHANNEL must be a Discord snowflake: 17-20 digits only.
+# The value is interpolated directly into the API URL path; invalid values
+# are rejected before any network call.
+#
 # Required env (one of):
 #   SWARM_DISCORD_WEBHOOK    — Discord incoming webhook URL (webhook mode)
 #   SWARM_DISCORD_BOT_TOKEN  — Bot token (bot-token mode)
 #
 # Required env for bot-token mode:
-#   DISCORD_CHANNEL          — Discord channel ID the bot will post to
+#   DISCORD_CHANNEL          — Discord channel snowflake ID (17-20 digits)
 #
 # Argument:
 #   $1 — path to the canonical event JSON file
@@ -39,6 +47,18 @@ else
   echo "  Set SWARM_DISCORD_WEBHOOK (webhook mode) or" >&2
   echo "  SWARM_DISCORD_BOT_TOKEN + DISCORD_CHANNEL (bot-token mode)." >&2
   exit 1
+fi
+
+# Defense-in-depth: validate DISCORD_CHANNEL before it is interpolated into the
+# API URL path. Discord snowflakes are 17-20 decimal digits only.
+# Rejects path-traversal attempts such as '123/../../x' or '../admin'.
+if [ "$_MODE" = "bot" ]; then
+  if ! printf '%s' "${DISCORD_CHANNEL}" | grep -qE '^[0-9]{17,20}$'; then
+    echo "notify/discord: ERROR: DISCORD_CHANNEL is not a valid Discord snowflake." >&2
+    echo "  Expected 17-20 digit channel ID (e.g. 123456789012345678)." >&2
+    echo "  Got: $(printf '%s' "${DISCORD_CHANNEL}" | head -c 40)" >&2
+    exit 1
+  fi
 fi
 
 # ---------------------------------------------------------------------------

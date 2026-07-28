@@ -655,3 +655,112 @@ YAML
   _val="$(grep -A1 'notify-discord-channel<<' "$_tmpdir/output" | tail -1)"
   [ "$_val" = "123456789012345678" ]
 }
+
+# =============================================================================
+# Channel ID validation — hostile values rejected before any curl call
+# =============================================================================
+
+@test "slack adapter: bot-token mode rejects channel with path-traversal characters" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-token"
+  export SLACK_CHANNEL="C123/../../evil"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"invalid"* ]] || [[ "$output" == *"ERROR"* ]]
+  # curl must NOT have been called — validation must be pre-flight
+  [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "^curl" "$CURL_STUB_LOG"
+}
+
+@test "slack adapter: bot-token mode rejects channel with dot-dot sequence" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-token"
+  export SLACK_CHANNEL="../admin"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  # curl must NOT have been called
+  [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "^curl" "$CURL_STUB_LOG"
+}
+
+@test "slack adapter: bot-token mode accepts valid alphanumeric channel ID" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-token"
+  export SLACK_CHANNEL="C0VALIDCHAN"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+  grep -q "^curl" "$CURL_STUB_LOG"
+}
+
+@test "discord adapter: bot-token mode rejects channel with path-traversal characters" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.token"
+  export DISCORD_CHANNEL="123456789012345/../../etc"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"snowflake"* ]] || [[ "$output" == *"invalid"* ]] || [[ "$output" == *"ERROR"* ]]
+  # curl must NOT have been called
+  [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "^curl" "$CURL_STUB_LOG"
+}
+
+@test "discord adapter: bot-token mode rejects non-numeric channel ID" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.token"
+  export DISCORD_CHANNEL="notanumber"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  # curl must NOT have been called
+  [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "^curl" "$CURL_STUB_LOG"
+}
+
+@test "discord adapter: bot-token mode rejects too-short numeric ID" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.token"
+  # Too short (< 17 digits) — not a valid Discord snowflake
+  export DISCORD_CHANNEL="12345"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  # curl must NOT have been called
+  [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "^curl" "$CURL_STUB_LOG"
+}
+
+@test "discord adapter: bot-token mode accepts valid 18-digit snowflake" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.token"
+  export DISCORD_CHANNEL="123456789012345678"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+  grep -q "^curl" "$CURL_STUB_LOG"
+}
+
+# =============================================================================
+# curl network failure — adapters must not report success when curl dies
+# =============================================================================
+
+@test "slack adapter: bot-token mode exits non-zero when curl fails (network error)" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-token"
+  export SLACK_CHANNEL="C0VALIDCHAN"
+  # Stub exits non-zero to simulate network failure (DNS/timeout/connection refused)
+  export CURL_STUB_STATUS=6
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"curl failed"* ]] || [[ "$output" == *"ERROR"* ]]
+}
+
+@test "discord adapter: bot-token mode exits non-zero when curl fails (network error)" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.token"
+  export DISCORD_CHANNEL="123456789012345678"
+  # Stub exits non-zero to simulate curl failure; discord uses --fail so exits non-zero
+  export CURL_STUB_STATUS=6
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+}
