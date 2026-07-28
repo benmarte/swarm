@@ -1518,8 +1518,10 @@ BUZZ_ANCHOR_ID="aaaa000000000000000000000000000000000000000000000000000000000001
   body="$(cat "$CURL_BODY_LOG")"
   # thread_ts must NOT appear in webhook payload
   echo "$body" | jq -e 'has("thread_ts") | not' > /dev/null
-  # No warning about threading must be emitted (per AC3)
-  [[ "$output" != *"thread"* ]] || [[ "$output" == *"webhook"* ]] || true
+  # No warning about threading must be emitted (per AC3).
+  # NOT `... || true` — that made this assertion unfailable. Webhook mode must
+  # be silent about threading, so the output must simply not mention it.
+  [[ "$output" != *"thread"* ]]
 }
 
 @test "slack threading: invalid SWARM_THREAD_ANCHOR_SLACK format causes root post (AC6)" {
@@ -1861,8 +1863,9 @@ assert anchors['discord'] == '222222222222222222', 'wrong discord value'
   export SLACK_CHANNEL="C0TEST1234"
   export CURL_STUB_RESPONSE='{"ok":true,"ts":"1738000000.000001"}'
 
+  # Plain mktemp with explicit cleanup — `trap ... EXIT` in a bats body makes a
+  # FAILING test vanish from TAP output entirely under bats 1.14 (see #77).
   _tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$_tmpdir"' EXIT
   export GH_STUB_LOG="$_tmpdir/gh.log"
   export GH_STUB_ISSUE_BODY_LOG="$_tmpdir/body.log"
   # No existing anchor in issue body
@@ -1874,5 +1877,6 @@ assert anchors['discord'] == '222222222222222222', 'wrong discord value'
   # gh must have been called to PATCH the issue body
   [ -f "$_tmpdir/gh.log" ]
   grep -q "PATCH" "$_tmpdir/gh.log" || grep -q "patch" "$_tmpdir/gh.log" || grep -q "issues/2" "$_tmpdir/gh.log"
+  rm -rf "$_tmpdir"
   unset GH_STUB_ISSUE_JSON GH_STUB_LOG GH_STUB_ISSUE_BODY_LOG
 }
