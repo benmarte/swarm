@@ -6,7 +6,9 @@
 #
 # SPEC §2.3 / §2.6: Buzz is NOT a webhook. It is a Nostr/NIP-29 relay.
 # `nak` answers the relay's NIP-42 AUTH challenge automatically with --auth.
-# Threading (NIP-10 reply tags) is not used in v1 — root posts only.
+# Threading uses NIP-10 reply tags ["e", <root-id>, "", "reply"] on subsequent
+# posts once a root event id is stored as the anchor.  Works in all modes
+# (key-based, not transport-based) — no webhook/bot-token distinction.
 #
 # Message content (talos-parity):
 #   Uses NOTIFY_TEXT if set (pre-rendered by notify.sh with verdict/evidence).
@@ -182,17 +184,72 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Publish kind:9 event to the buzz relay (root post, no threading in v1)
+# Threading via NIP-10 reply tags (works in all modes — key-based, not
+# transport-based, so no webhook/bot-token distinction is needed).
+# The anchor is a Nostr event id (64 lowercase hex chars) pointing to the
+# first (root) kind:9 event posted for this issue.
+# Stale-anchor self-healing: if nak rejects a reply to an unknown parent,
+# clear the anchor and retry as a fresh root post.
 # ---------------------------------------------------------------------------
+_buzz_anchor="${SWARM_THREAD_ANCHOR_BUZZ:-}"
+if [ -n "$_buzz_anchor" ]; then
+  # Allowlist: Nostr event id — exactly 64 lowercase hex digits
+  if ! printf '%s' "$_buzz_anchor" | grep -qE '^[0-9a-f]{64}$'; then
+    echo "notify/buzz: WARNING: SWARM_THREAD_ANCHOR_BUZZ has invalid format — posting as root" >&2
+    _buzz_anchor=""
+  fi
+fi
+
 echo "notify/buzz: publishing kind:9 event to relay $SWARM_BUZZ_RELAY_URL"
-if ! "$NAK_BIN" event --auth \
-    --sec "$SWARM_BUZZ_PRIVATE_KEY" \
-    -k 9 \
-    -c "$TEXT" \
-    -t "h=$BUZZ_CHANNEL" \
-    "$SWARM_BUZZ_RELAY_URL"; then
-  echo "notify/buzz: ERROR: nak failed to publish event" >&2
-  exit 1
+
+_buzz_nak_resp=""
+if [ -n "$_buzz_anchor" ]; then
+  # Reply to the existing root thread via NIP-10 ["e", <root-id>, "", "reply"] tag
+  if _buzz_nak_resp="$("$NAK_BIN" event --auth \
+      --sec "$SWARM_BUZZ_PRIVATE_KEY" \
+      -k 9 \
+      -c "$TEXT" \
+      -t "h=$BUZZ_CHANNEL" \
+      -t "e=${_buzz_anchor};;reply" \
+      "$SWARM_BUZZ_RELAY_URL" 2>/dev/null)"; then
+    # Reply succeeded — do not update the anchor (root stays fixed)
+    :
+  else
+    # Reply failed: the root event may have been deleted (stale anchor).
+    # Self-heal: retry as a fresh root post and record the new event id.
+    echo "notify/buzz: stale thread anchor — retrying as fresh root post" >&2
+    if _buzz_nak_resp="$("$NAK_BIN" event --auth \
+        --sec "$SWARM_BUZZ_PRIVATE_KEY" \
+        -k 9 \
+        -c "$TEXT" \
+        -t "h=$BUZZ_CHANNEL" \
+        "$SWARM_BUZZ_RELAY_URL" 2>/dev/null)"; then
+      # Recovery succeeded — store new root event id as fresh anchor
+      _new_evid="$(printf '%s' "$_buzz_nak_resp" | head -1 | jq -r '.id // ""' 2>/dev/null | tr -d '\n\r')"
+      if [ -n "$_new_evid" ] && [ -n "${SWARM_ANCHOR_OUT:-}" ]; then
+        printf '%s' "$_new_evid" > "$SWARM_ANCHOR_OUT"
+      fi
+    else
+      echo "notify/buzz: ERROR: stale-anchor recovery failed" >&2
+      exit 1
+    fi
+  fi
+else
+  # First post or no anchor — publish as root and record the event id
+  if _buzz_nak_resp="$("$NAK_BIN" event --auth \
+      --sec "$SWARM_BUZZ_PRIVATE_KEY" \
+      -k 9 \
+      -c "$TEXT" \
+      -t "h=$BUZZ_CHANNEL" \
+      "$SWARM_BUZZ_RELAY_URL")"; then
+    _new_evid="$(printf '%s' "$_buzz_nak_resp" | head -1 | jq -r '.id // ""' 2>/dev/null | tr -d '\n\r')"
+    if [ -n "$_new_evid" ] && [ -n "${SWARM_ANCHOR_OUT:-}" ]; then
+      printf '%s' "$_new_evid" > "$SWARM_ANCHOR_OUT"
+    fi
+  else
+    echo "notify/buzz: ERROR: nak failed to publish event" >&2
+    exit 1
+  fi
 fi
 
 echo "notify/buzz: delivered"

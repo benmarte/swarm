@@ -80,6 +80,26 @@ if [ "$_MODE" = "bot" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Threading (bot-token mode only — webhook mode silently posts root messages,
+# no warning emitted per AC3).
+# Discord threading uses message_reference with fail_if_not_exists:false so a
+# deleted root message silently falls back to a fresh root post (stale-anchor
+# self-healing is handled transparently by the Discord API).
+# ---------------------------------------------------------------------------
+_discord_ref_id=""
+if [ "$_MODE" = "bot" ]; then
+  _ref_candidate="${SWARM_THREAD_ANCHOR_DISCORD:-}"
+  if [ -n "$_ref_candidate" ]; then
+    # Allowlist: Discord snowflake — 17-20 decimal digits
+    if printf '%s' "$_ref_candidate" | grep -qE '^[0-9]{17,20}$'; then
+      _discord_ref_id="$_ref_candidate"
+    else
+      echo "notify/discord: WARNING: SWARM_THREAD_ANCHOR_DISCORD has invalid format — posting as root" >&2
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Per-event color mapping (talos-parity integer values)
 # ---------------------------------------------------------------------------
 _event_type="$(jq -r '.event' "$EVENT_FILE")"
@@ -107,12 +127,17 @@ fi
 
 # ---------------------------------------------------------------------------
 # Build Discord embed payload (talos-parity: title/url/description/color/footer)
+# message_reference is added only in bot-token mode when a valid anchor exists.
+# fail_if_not_exists:false means Discord silently posts as root if the anchored
+# message was deleted — this is the stale-anchor self-healing mechanism (AC4).
 # ---------------------------------------------------------------------------
 payload=$(jq -n \
   --slurpfile ev "$EVENT_FILE" \
   --argjson color "$_color_int" \
   --arg desc "$_notify_text" \
-  '{
+  --arg ref_id "$_discord_ref_id" \
+  '
+  {
     embeds: [
       {
         title: ("swarm: " + $ev[0].event),
@@ -124,9 +149,17 @@ payload=$(jq -n \
         }
       }
     ]
-  }')
+  } |
+  if $ref_id != "" then
+    . + {message_reference: {message_id: $ref_id, fail_if_not_exists: false}}
+  else
+    .
+  end
+  ')
 
 if [ "$_MODE" = "webhook" ]; then
+  # Webhook mode: no threading (Discord webhooks do not support message_reference).
+  # No warning is emitted — webhook-mode users opted out of threading implicitly.
   echo "notify/discord: posting via webhook"
   if ! curl --silent --fail --show-error \
       -X POST \
@@ -137,15 +170,33 @@ if [ "$_MODE" = "webhook" ]; then
     exit 1
   fi
 else
-  echo "notify/discord: posting via bot token to channel $DISCORD_CHANNEL"
+  if [ -n "$_discord_ref_id" ]; then
+    echo "notify/discord: posting via bot token to channel $DISCORD_CHANNEL (thread: $_discord_ref_id)"
+  else
+    echo "notify/discord: posting via bot token to channel $DISCORD_CHANNEL"
+  fi
+  # Capture response to extract message id for anchor on first post.
+  _tmp_discord_resp="$(mktemp)"
+  trap 'rm -f "$_tmp_discord_resp"' EXIT
   if ! curl --silent --fail --show-error \
       -X POST \
       -H "Content-Type: application/json" \
       -H "Authorization: Bot $SWARM_DISCORD_BOT_TOKEN" \
       -d "$payload" \
+      --output "$_tmp_discord_resp" \
       "https://discord.com/api/v10/channels/$DISCORD_CHANNEL/messages"; then
     echo "notify/discord: ERROR: Discord API returned non-2xx status" >&2
     exit 1
+  fi
+  _discord_resp="$(cat "$_tmp_discord_resp")"
+  # Store message id as anchor on first post (when no anchor existed before).
+  # Discord with fail_if_not_exists:false handles stale anchors transparently —
+  # subsequent posts with a stale anchor silently become new root messages.
+  if [ -z "$_discord_ref_id" ]; then
+    _new_id="$(printf '%s' "$_discord_resp" | jq -r '.id // ""' 2>/dev/null | tr -d '\n\r')"
+    if [ -n "$_new_id" ] && [ -n "${SWARM_ANCHOR_OUT:-}" ]; then
+      printf '%s' "$_new_id" > "$SWARM_ANCHOR_OUT"
+    fi
   fi
 fi
 

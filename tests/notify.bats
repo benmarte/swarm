@@ -26,6 +26,14 @@ setup() {
   NAK_LOG="$(mktemp)"
   export NAK_QUEUE
   NAK_QUEUE="$(mktemp)"
+  export GH_STUB_LOG
+  GH_STUB_LOG="$(mktemp)"
+  export CURL_STUB_QUEUE
+  CURL_STUB_QUEUE="$(mktemp)"
+
+  # Unset threading anchors so each test starts clean
+  unset SWARM_THREAD_ANCHOR_SLACK SWARM_THREAD_ANCHOR_DISCORD SWARM_THREAD_ANCHOR_BUZZ
+  unset SWARM_ANCHOR_OUT GH_STUB_ISSUE_JSON GH_STUB_ISSUE_BODY_LOG
 
   # Prepend stubs dir so fake curl/nak are found first; real ajv lives later
   export PATH="$STUBS_DIR:$PATH"
@@ -40,7 +48,8 @@ setup() {
 }
 
 teardown() {
-  rm -f "$CURL_STUB_LOG" "$CURL_BODY_LOG" "$CURL_HEADER_LOG" "$NAK_LOG" "$NAK_QUEUE"
+  rm -f "$CURL_STUB_LOG" "$CURL_BODY_LOG" "$CURL_HEADER_LOG" "$NAK_LOG" "$NAK_QUEUE" \
+        "$GH_STUB_LOG" "$CURL_STUB_QUEUE"
 }
 
 # =============================================================================
@@ -1427,4 +1436,447 @@ _assert_no_forged_line() {
   command -v ajv >/dev/null 2>&1 || skip "ajv-cli not installed"
   run ajv validate -s "$REPO_ROOT/schemas/event.schema.json" -d "$FIXTURE_HOSTILE"
   [ "$status" -eq 0 ]
+}
+
+# =============================================================================
+# Thread anchoring (#71) — regression tests
+# Each test in this section FAILS on the pre-#71 code and passes after.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Shared helper: a valid 64-hex Nostr event id used across buzz threading tests
+# ---------------------------------------------------------------------------
+BUZZ_ANCHOR_ID="aaaa000000000000000000000000000000000000000000000000000000000001"
+
+# ---------------------------------------------------------------------------
+# AC1 + AC6: Slack bot-token — thread_ts injected when anchor is valid
+# Regression: pre-#71 code ignores SWARM_THREAD_ANCHOR_SLACK → no thread_ts.
+# ---------------------------------------------------------------------------
+
+@test "slack threading: bot-token payload includes thread_ts when SWARM_THREAD_ANCHOR_SLACK is set (regression)" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-bot-token-value"
+  export SLACK_CHANNEL="C0TEST1234"
+  export SWARM_THREAD_ANCHOR_SLACK="1738000000.000001"
+  # Slack returns ok:true with a ts
+  export CURL_STUB_RESPONSE='{"ok":true,"ts":"1738000000.000002"}'
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  # thread_ts must be present in the payload
+  echo "$body" | jq -e '.thread_ts == "1738000000.000001"' > /dev/null
+}
+
+@test "slack threading: bot-token first post stores ts in SWARM_ANCHOR_OUT (regression)" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-bot-token-value"
+  export SLACK_CHANNEL="C0TEST1234"
+  unset SWARM_THREAD_ANCHOR_SLACK
+  # Slack returns ok:true with a ts on first post
+  export CURL_STUB_RESPONSE='{"ok":true,"ts":"1738111111.000001"}'
+
+  _anchor_out="$(mktemp)"
+  export SWARM_ANCHOR_OUT="$_anchor_out"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # Adapter must have written the ts to SWARM_ANCHOR_OUT
+  [ -s "$_anchor_out" ]
+  _stored="$(cat "$_anchor_out" | tr -d '\n\r')"
+  [ "$_stored" = "1738111111.000001" ]
+  rm -f "$_anchor_out"
+}
+
+@test "slack threading: bot-token reply does NOT overwrite SWARM_ANCHOR_OUT (regression)" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-bot-token-value"
+  export SLACK_CHANNEL="C0TEST1234"
+  export SWARM_THREAD_ANCHOR_SLACK="1738000000.000001"
+  export CURL_STUB_RESPONSE='{"ok":true,"ts":"1738000000.000099"}'
+
+  _anchor_out="$(mktemp)"
+  export SWARM_ANCHOR_OUT="$_anchor_out"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # Replying to an existing thread must NOT update the anchor (root stays fixed)
+  [ ! -s "$_anchor_out" ]
+  rm -f "$_anchor_out"
+}
+
+@test "slack threading: webhook mode never includes thread_ts even when anchor set (AC3)" {
+  export SWARM_SLACK_WEBHOOK="https://hooks.slack.com/services/fake/webhook"
+  export SWARM_THREAD_ANCHOR_SLACK="1738000000.000001"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  # thread_ts must NOT appear in webhook payload
+  echo "$body" | jq -e 'has("thread_ts") | not' > /dev/null
+  # No warning about threading must be emitted (per AC3).
+  # NOT `... || true` — that made this assertion unfailable. Webhook mode must
+  # be silent about threading, so the output must simply not mention it.
+  [[ "$output" != *"thread"* ]]
+}
+
+@test "slack threading: invalid SWARM_THREAD_ANCHOR_SLACK format causes root post (AC6)" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-token"
+  export SLACK_CHANNEL="C0TEST1234"
+  export SWARM_THREAD_ANCHOR_SLACK="not-a-valid-ts"
+  export CURL_STUB_RESPONSE='{"ok":true,"ts":"1738000000.000001"}'
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  # No thread_ts in payload when anchor format is invalid
+  echo "$body" | jq -e 'has("thread_ts") | not' > /dev/null
+}
+
+@test "slack threading: thread_not_found triggers stale-anchor recovery (AC4)" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-token"
+  export SLACK_CHANNEL="C0TEST1234"
+  export SWARM_THREAD_ANCHOR_SLACK="1738000000.000001"
+
+  _anchor_out="$(mktemp)"
+  export SWARM_ANCHOR_OUT="$_anchor_out"
+
+  # First call returns thread_not_found; second (retry) returns ok:true
+  _queue="$(mktemp)"
+  printf '%s\n' '{"ok":false,"error":"thread_not_found"}' > "$_queue"
+  printf '%s\n' '{"ok":true,"ts":"1738999999.000001"}' >> "$_queue"
+  export CURL_STUB_QUEUE="$_queue"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # Recovery succeeded — new anchor must be stored
+  [ -s "$_anchor_out" ]
+  _stored="$(cat "$_anchor_out" | tr -d '\n\r')"
+  [ "$_stored" = "1738999999.000001" ]
+  rm -f "$_anchor_out" "$_queue"
+}
+
+@test "slack threading: thread_not_found recovery retry posts without thread_ts (AC4)" {
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-token"
+  export SLACK_CHANNEL="C0TEST1234"
+  export SWARM_THREAD_ANCHOR_SLACK="1738000000.000001"
+
+  _queue="$(mktemp)"
+  printf '%s\n' '{"ok":false,"error":"thread_not_found"}' > "$_queue"
+  printf '%s\n' '{"ok":true,"ts":"1738999999.000001"}' >> "$_queue"
+  export CURL_STUB_QUEUE="$_queue"
+
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # Two curl POSTs should have been made (first attempt + retry).
+  # CURL_BODY_LOG contains two pretty-printed JSON objects back-to-back.
+  # Use jq -s to parse the stream into an array and slice by position.
+  _bodies_raw="$(cat "$CURL_BODY_LOG")"
+  # Must have at least 2 JSON objects (2 "blocks" keys)
+  _count="$(printf '%s' "$_bodies_raw" | grep -c '"blocks"')" || _count=0
+  [ "$_count" -ge 2 ]
+  # The second (retry) payload must NOT contain thread_ts
+  printf '%s' "$_bodies_raw" | jq -s -e '.[1] | has("thread_ts") | not' > /dev/null
+  rm -f "$_queue"
+}
+
+# ---------------------------------------------------------------------------
+# AC1 + AC6: Discord bot-token — message_reference injected when anchor is valid
+# Regression: pre-#71 code ignores SWARM_THREAD_ANCHOR_DISCORD.
+# ---------------------------------------------------------------------------
+
+@test "discord threading: bot-token payload includes message_reference when SWARM_THREAD_ANCHOR_DISCORD is set (regression)" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.discord.token"
+  export DISCORD_CHANNEL="123456789012345678"
+  export SWARM_THREAD_ANCHOR_DISCORD="111111111111111111"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  # message_reference must be present with the anchor id
+  echo "$body" | jq -e '.message_reference.message_id == "111111111111111111"' > /dev/null
+  # fail_if_not_exists must be false (stale anchor self-heals silently)
+  echo "$body" | jq -e '.message_reference.fail_if_not_exists == false' > /dev/null
+}
+
+@test "discord threading: bot-token first post stores id in SWARM_ANCHOR_OUT (regression)" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.discord.token"
+  export DISCORD_CHANNEL="123456789012345678"
+  unset SWARM_THREAD_ANCHOR_DISCORD
+  # Discord returns the posted message JSON with id
+  export CURL_STUB_RESPONSE='{"id":"222222222222222222","channel_id":"123456789012345678"}'
+
+  _anchor_out="$(mktemp)"
+  export SWARM_ANCHOR_OUT="$_anchor_out"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # Adapter must have written the message id to SWARM_ANCHOR_OUT
+  [ -s "$_anchor_out" ]
+  _stored="$(cat "$_anchor_out" | tr -d '\n\r')"
+  [ "$_stored" = "222222222222222222" ]
+  rm -f "$_anchor_out"
+}
+
+@test "discord threading: bot-token reply does NOT overwrite SWARM_ANCHOR_OUT (regression)" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.discord.token"
+  export DISCORD_CHANNEL="123456789012345678"
+  export SWARM_THREAD_ANCHOR_DISCORD="111111111111111111"
+  export CURL_STUB_RESPONSE='{"id":"333333333333333333","channel_id":"123456789012345678"}'
+
+  _anchor_out="$(mktemp)"
+  export SWARM_ANCHOR_OUT="$_anchor_out"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # Reply must NOT update the anchor (root stays fixed)
+  [ ! -s "$_anchor_out" ]
+  rm -f "$_anchor_out"
+}
+
+@test "discord threading: webhook mode never includes message_reference even when anchor set (AC3)" {
+  export SWARM_DISCORD_WEBHOOK="https://discord.com/api/webhooks/fake/webhook"
+  export SWARM_THREAD_ANCHOR_DISCORD="111111111111111111"
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  echo "$body" | jq -e 'has("message_reference") | not' > /dev/null
+}
+
+@test "discord threading: invalid SWARM_THREAD_ANCHOR_DISCORD format causes root post (AC6)" {
+  unset SWARM_DISCORD_WEBHOOK
+  export SWARM_DISCORD_BOT_TOKEN="Bot.test.token"
+  export DISCORD_CHANNEL="123456789012345678"
+  export SWARM_THREAD_ANCHOR_DISCORD="not-a-snowflake"
+  export CURL_STUB_RESPONSE='{"id":"444444444444444444"}'
+
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  echo "$body" | jq -e 'has("message_reference") | not' > /dev/null
+}
+
+# ---------------------------------------------------------------------------
+# AC2: Buzz NIP-10 threading via reply tag in all modes
+# Regression: pre-#71 code never adds -t e=<anchor>;;reply
+# ---------------------------------------------------------------------------
+
+@test "buzz threading: includes NIP-10 reply tag when SWARM_THREAD_ANCHOR_BUZZ is set (regression)" {
+  export SWARM_THREAD_ANCHOR_BUZZ="$BUZZ_ANCHOR_ID"
+
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  nak_args="$(cat "$NAK_LOG")"
+  # NIP-10 reply tag must appear: -t e=<anchor>;;reply
+  [[ "$nak_args" == *"e=${BUZZ_ANCHOR_ID};;reply"* ]]
+}
+
+@test "buzz threading: first post stores event id in SWARM_ANCHOR_OUT (regression)" {
+  unset SWARM_THREAD_ANCHOR_BUZZ
+
+  _anchor_out="$(mktemp)"
+  export SWARM_ANCHOR_OUT="$_anchor_out"
+
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # nak stub prints a fixed event JSON with id field
+  [ -s "$_anchor_out" ]
+  _stored="$(cat "$_anchor_out" | tr -d '\n\r')"
+  # Must be a valid 64-char hex Nostr event id
+  printf '%s' "$_stored" | grep -qE '^[0-9a-f]{64}$'
+  rm -f "$_anchor_out"
+}
+
+@test "buzz threading: reply does NOT overwrite SWARM_ANCHOR_OUT when anchor exists (regression)" {
+  export SWARM_THREAD_ANCHOR_BUZZ="$BUZZ_ANCHOR_ID"
+
+  _anchor_out="$(mktemp)"
+  export SWARM_ANCHOR_OUT="$_anchor_out"
+
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # Replying to existing thread must not update the anchor
+  [ ! -s "$_anchor_out" ]
+  rm -f "$_anchor_out"
+}
+
+@test "buzz threading: invalid SWARM_THREAD_ANCHOR_BUZZ format causes root post (AC6)" {
+  export SWARM_THREAD_ANCHOR_BUZZ="not-a-hex-event-id"
+
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  nak_args="$(cat "$NAK_LOG")"
+  # Must NOT include a reply tag
+  [[ "$nak_args" != *";;reply"* ]]
+}
+
+@test "buzz threading: stale anchor triggers fresh root post and stores new event id (AC4)" {
+  export SWARM_THREAD_ANCHOR_BUZZ="$BUZZ_ANCHOR_ID"
+
+  _anchor_out="$(mktemp)"
+  export SWARM_ANCHOR_OUT="$_anchor_out"
+
+  # First nak call (reply) fails; second (root retry) succeeds with a new id
+  printf '%s\n' "fail" > "$NAK_QUEUE"
+  # Default nak stub response on success is:
+  # {"id":"aaaa000000000000000000000000000000000000000000000000000000000001","kind":9}
+
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+
+  # Recovery succeeded — new anchor must be stored
+  [ -s "$_anchor_out" ]
+  _stored="$(cat "$_anchor_out" | tr -d '\n\r')"
+  printf '%s' "$_stored" | grep -qE '^[0-9a-f]{64}$'
+  rm -f "$_anchor_out"
+}
+
+# ---------------------------------------------------------------------------
+# AC5: Parallel stage race — anchor_set merges, does not wipe other sinks
+# ---------------------------------------------------------------------------
+
+@test "anchor_state: swarm_anchor_set merges new key with existing anchors without wiping other sinks (AC5)" {
+  # Use plain mktemp files (no tmpdir, no trap) to avoid bats silent-drop anomaly.
+  _body_log="$(mktemp)"
+  export GH_STUB_ISSUE_BODY_LOG="$_body_log"
+  # Simulate existing body with slack anchor already stored
+  export GH_STUB_ISSUE_JSON='{"number":2,"title":"test","body":"issue body\n\n<!-- swarm:thread-anchors {\"slack\":\"1738000000.000001\"} -->","labels":[],"comments":[]}'
+
+  # Source the anchor helper and call swarm_anchor_set for discord
+  run bash -c "
+    export PATH=\"$STUBS_DIR:\$PATH\"
+    . \"$REPO_ROOT/actions/notify/anchor_state.sh\"
+    swarm_anchor_set \"benmarte/swarm\" \"2\" \"discord\" \"222222222222222222\"
+  "
+  [ "$status" -eq 0 ]
+
+  # The body written back must contain BOTH the slack and discord anchors
+  [ -s "$_body_log" ]
+  _written_body="$(cat "$_body_log")"
+  # Must contain slack key (not wiped by discord write)
+  printf '%s' "$_written_body" | python3 -c "
+import sys, re, json
+data = json.loads(sys.stdin.read())
+body = data.get('body', '')
+m = re.search(r'<!-- swarm:thread-anchors (\{[^}]*\}) -->', body)
+assert m, 'anchor marker not found in body: ' + repr(body)
+anchors = json.loads(m.group(1))
+assert 'slack' in anchors, 'slack key was wiped'
+assert 'discord' in anchors, 'discord key not added'
+assert anchors['discord'] == '222222222222222222', 'wrong discord value'
+"
+  rm -f "$_body_log"
+  unset GH_STUB_ISSUE_JSON GH_STUB_ISSUE_BODY_LOG
+}
+
+# ---------------------------------------------------------------------------
+# notify.sh integration: anchor read/write orchestration
+# ---------------------------------------------------------------------------
+
+@test "notify.sh threading: reads anchor from issue body and passes to slack adapter" {
+  export EVENT_FILE="$FIXTURE_EVENT"
+  export ENABLED_SINKS="slack"
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-token"
+  export SLACK_CHANNEL="C0TEST1234"
+  export CURL_STUB_RESPONSE='{"ok":true,"ts":"1738000000.000001"}'
+
+  # Use plain mktemp files (no tmpdir, no trap) to avoid bats silent-drop anomaly.
+  export GH_STUB_ISSUE_BODY_LOG="$(mktemp)"
+  # Simulate issue body with existing slack anchor
+  export GH_STUB_ISSUE_JSON='{"number":2,"title":"test","body":"<!-- swarm:thread-anchors {\"slack\":\"1738000000.000001\"} -->","labels":[],"comments":[]}'
+
+  run bash "$NOTIFY_SH"
+  [ "$status" -eq 0 ]
+
+  # Slack payload must include the thread_ts from the stored anchor
+  body="$(cat "$CURL_BODY_LOG")"
+  echo "$body" | jq -e '.thread_ts == "1738000000.000001"' > /dev/null
+  rm -f "$GH_STUB_ISSUE_BODY_LOG"
+  unset GH_STUB_ISSUE_JSON GH_STUB_ISSUE_BODY_LOG
+}
+
+# ---------------------------------------------------------------------------
+# Bug regression: failed gh GET must not silently produce a PATCH that destroys
+# the issue body.  This test FAILS on the pre-fix code (|| true swallows gh
+# exit code → empty body → PATCH with only the marker → user content wiped).
+# ---------------------------------------------------------------------------
+
+@test "anchor_state: failed gh GET does not PATCH the issue body (data-loss regression)" {
+  # Uses a plain mktemp file (no tmpdir, no trap) to capture any PATCH body.
+  # GH_STUB_ISSUE_BODY_LOG is written by the gh stub's PATCH handler only when
+  # a PATCH is actually performed.  On the pre-fix code, _swarm_anchor_fetch_body
+  # has '|| true' which swallows the GET failure; swarm_anchor_set then computes
+  # a marker-only new body and PATCHes, destroying the real issue body.
+  _body_log="$(mktemp)"
+  export GH_STUB_ISSUE_BODY_LOG="$_body_log"
+  # Force every gh GET on a single issue to fail (simulates rate-limit / network blip)
+  export GH_STUB_ISSUE_GET_FAIL=1
+
+  run bash -c "
+    export PATH=\"$STUBS_DIR:\$PATH\"
+    . \"$REPO_ROOT/actions/notify/anchor_state.sh\"
+    swarm_anchor_set \"benmarte/swarm\" \"2\" \"slack\" \"1738000000.000001\"
+  "
+  # Function must return 0 (fail soft — never abort the pipeline)
+  [ "$status" -eq 0 ]
+
+  # CRITICAL: PATCH must NOT have been called — body log must remain empty.
+  # On the buggy code the gh stub writes the marker-only body here → fails.
+  [ ! -s "$_body_log" ]
+
+  # Output must warn about the read failure (not silently drop)
+  [[ "$output" == *"WARNING"* ]] || [[ "$output" == *"failed"* ]] || [[ "$output" == *"read"* ]]
+
+  rm -f "$_body_log"
+  unset GH_STUB_ISSUE_GET_FAIL GH_STUB_ISSUE_BODY_LOG
+}
+
+@test "notify.sh threading: first post stores anchor in issue body via gh api" {
+  export EVENT_FILE="$FIXTURE_EVENT"
+  export ENABLED_SINKS="slack"
+  unset SWARM_SLACK_WEBHOOK
+  export SWARM_SLACK_BOT_TOKEN="xoxb-test-token"
+  export SLACK_CHANNEL="C0TEST1234"
+  export CURL_STUB_RESPONSE='{"ok":true,"ts":"1738000000.000001"}'
+
+  # Plain mktemp with explicit cleanup — `trap ... EXIT` in a bats body makes a
+  # FAILING test vanish from TAP output entirely under bats 1.14 (see #77).
+  _tmpdir="$(mktemp -d)"
+  export GH_STUB_LOG="$_tmpdir/gh.log"
+  export GH_STUB_ISSUE_BODY_LOG="$_tmpdir/body.log"
+  # No existing anchor in issue body
+  export GH_STUB_ISSUE_JSON='{"number":2,"title":"test","body":"","labels":[],"comments":[]}'
+
+  run bash "$NOTIFY_SH"
+  [ "$status" -eq 0 ]
+
+  # gh must have been called to PATCH the issue body
+  [ -f "$_tmpdir/gh.log" ]
+  grep -q "PATCH" "$_tmpdir/gh.log" || grep -q "patch" "$_tmpdir/gh.log" || grep -q "issues/2" "$_tmpdir/gh.log"
+  rm -rf "$_tmpdir"
+  unset GH_STUB_ISSUE_JSON GH_STUB_LOG GH_STUB_ISSUE_BODY_LOG
 }
