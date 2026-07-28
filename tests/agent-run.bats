@@ -118,7 +118,13 @@ teardown() {
   # The openai-compat adapter exits 0 when test-skipping (it hasn't written an
   # outcome.json, so validate-outcome would fail). We test the adapter directly
   # in the adapter-specific tests below.
-  [ "$status" -ne 0 ] || true  # agent-run may fail due to missing outcome.json — that's expected
+  # Status is intentionally NOT asserted: with SWARM_TEST_SKIP_LLM the adapter
+  # exits 0 without writing outcome.json, so agent-run may legitimately fail at
+  # validation. The point of this test is that the adapter name is ACCEPTED —
+  # which the absence of an "invalid adapter" error below demonstrates.
+  # (Previously written as `[ "$status" -ne 0 ] || true`, which asserted
+  # nothing while reading like a check.)
+  [[ "$output" != *"invalid adapter"* ]] || false
   unset SWARM_TEST_SKIP_LLM 2>/dev/null || true
 }
 

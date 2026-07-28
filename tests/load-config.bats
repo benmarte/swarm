@@ -190,7 +190,7 @@ get_output() {
   export CONFIG_FILE="$FIXTURES/invalid-secret-key.yml"
   run bash "$LOAD_CONFIG_SH"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"FAILED"* ]] || [[ "$stderr" == *"FAILED"* ]] || true
+  [[ "$output" == *"FAILED"* ]] || [[ "$stderr" == *"FAILED"* ]]
 }
 
 @test "config with extra secret keys (SWARM_BUZZ_RELAY_URL) fails schema" {

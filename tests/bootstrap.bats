@@ -215,17 +215,19 @@ teardown() {
   [[ "$output" != *"pwned"* ]]
 }
 
-@test "hostile-value: whoami expansion never appears in stdout" {
-  whoami_user="$(whoami)"
+@test "hostile-value: command substitution in a secret value is never executed" {
+  # Was `[[ "$output" != *"$(whoami)"* ]]`, which cannot hold: the expansion is
+  # a username that legitimately appears via the engine repo slug and in runner
+  # paths (whoami is "runner" on GitHub-hosted runners, paths /home/runner/...).
+  # It had been silenced with `|| true`. The fixture now carries a sentinel that
+  # can only appear if the value was actually executed.
   run bash "$BOOTSTRAP_SH" \
     --env-file "$FIXTURES_DIR/hostile-value.env" \
     --repo testowner/testrepo \
     --reviewer stubuser \
     --dry-run
   [ "$status" -eq 0 ]
-  # The literal username should not appear as a result of command substitution
-  # (it's fine if the username appears in a path or prompt, but not as "$(whoami)" expansion)
-  [[ "$output" != *"$(whoami)"* ]] || true
+  [[ "$output" != *"swarm_expanded_9c41f2"* ]]
   # The raw metacharacter sequence must not have been eval'd
   [[ "$output" != *"echo pwned"* ]] || [[ "$output" == *"echo pwned"* && "$output" != *"pwned
 "* ]]
