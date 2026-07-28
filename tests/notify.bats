@@ -346,10 +346,9 @@ teardown() {
 }
 
 @test "buzz adapter: exits 1 when nak binary not found" {
-  # Remove stubs dir from PATH so nak is not found
-  local stripped_path
-  stripped_path="$(echo "$PATH" | tr ':' '\n' | grep -v "$STUBS_DIR" | tr '\n' ':' | sed 's/:$//')"
-  export PATH="$stripped_path"
+  # Override NAK_BIN to a nonexistent path so command -v fails regardless of
+  # whether nak is installed on the host machine.
+  export NAK_BIN="/nonexistent/nak"
 
   run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
   [ "$status" -ne 0 ]

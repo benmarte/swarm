@@ -111,7 +111,7 @@ Reads the current `swarm:attempts:N` label (`N` in 1..3). Increments it (`none�
 
 Validates an event JSON against `schemas/event.schema.json`, then dispatches to each configured sink:
 - `slack.sh`, `discord.sh`, `teams.sh` — outbound webhook POSTs.
-- `buzz.sh` — publishes a signed Nostr `kind:9` event tagged `["h", <channel-uuid>]` via the `nak` CLI (`--auth` answers NIP-42 authentication). Requires `nak` on the self-hosted runner. Credentials: `SWARM_BUZZ_RELAY_URL` and `SWARM_BUZZ_PRIVATE_KEY` (GitHub Secrets); channel UUID in `swarm.config.yml notify.buzz_channel` (not a secret — it is behavior config).
+- `buzz.sh` — publishes a signed Nostr `kind:9` event tagged `["h", <channel-uuid>]` via the `nak` CLI (`--auth` answers NIP-42 authentication). Requires `nak` on the self-hosted runner. Credentials: `SWARM_BUZZ_RELAY_URL` and `SWARM_BUZZ_PRIVATE_KEY` (GitHub Secrets); channel UUID in `swarm.config.yml notify.buzz_channel` (not a secret — it is behavior config). **NIP-29 prerequisite:** the bot keypair must be admitted as a channel member (relay-side `kind:9000` by an admin) before it can post; a published `kind:0` profile event is also required for the bot to appear by name in the relay's member picker. See `docs/adopting.md` for the one-time setup procedure.
 
 ### `load-config` — config validation and export
 

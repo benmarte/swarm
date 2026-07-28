@@ -148,7 +148,12 @@ NOTIFY_SCRIPT="${NOTIFY_SCRIPT:-${GITHUB_ACTION_PATH:-$(cd "$(dirname "$0")" && 
 
 if [ -n "${ENABLED_SINKS:-}" ] && [ -f "$NOTIFY_SCRIPT" ]; then
   # Build the canonical event JSON and pass it to the notify action script.
-  EVENT_FILE="$(mktemp)"
+  # Use mktemp to get a unique base name, then rename with .json suffix so
+  # ajv-cli treats the file as JSON (not YAML).  Trap ensures cleanup on any exit.
+  _swarm_event_tmp="$(mktemp "${TMPDIR:-/tmp}/swarm-event.XXXXXX")"
+  EVENT_FILE="${_swarm_event_tmp}.json"
+  mv "$_swarm_event_tmp" "$EVENT_FILE"
+  trap 'rm -f "$EVENT_FILE"' EXIT
   jq -n \
     --arg event "stage_transition" \
     --arg repo "${GITHUB_REPOSITORY}" \
@@ -169,8 +174,10 @@ if [ -n "${ENABLED_SINKS:-}" ] && [ -f "$NOTIFY_SCRIPT" ]; then
       url: $url,
       summary: $summary
     }' > "$EVENT_FILE"
-  EVENT_FILE="$EVENT_FILE" bash "$NOTIFY_SCRIPT"
-  rm -f "$EVENT_FILE"
+  # Notify failures must NEVER block the pipeline — log a warning and continue.
+  if ! EVENT_FILE="$EVENT_FILE" bash "$NOTIFY_SCRIPT"; then
+    echo "transition: WARNING: notify fan-out failed (sinks: ${ENABLED_SINKS}) — transition complete, notifications not delivered" >&2
+  fi
 else
   echo "transition: notify: no sinks configured (ENABLED_SINKS not set)"
 fi

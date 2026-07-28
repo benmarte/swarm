@@ -285,14 +285,24 @@ teardown() {
   grep -q "github.com" "$GITHUB_OUTPUT"
 }
 
-@test "engine: transitions issue from swarm:develop to swarm:qa on success" {
+@test "engine: does NOT transition internally — notify job in develop.yml owns transition" {
+  # develop-run.sh no longer calls transition.sh directly; the separate notify
+  # job in develop.yml handles it so sink secrets never share a job with the
+  # LLM adapter (security: issue #40 class).
   export GH_STUB_LABELS_JSON='[{"name":"swarm:develop"}]'
 
   run bash "$ENGINE_SH"
   [ "$status" -eq 0 ]
 
-  # Transition calls: remove swarm:develop + add swarm:qa
-  grep -q "swarm:qa" "$GH_STUB_LOG"
+  # Verify PR was created (core engine work)
+  grep -q "pr-url" "$GITHUB_OUTPUT"
+
+  # Transition (swarm:qa label) must NOT be set by develop-run itself
+  if grep -q "swarm:qa" "$GH_STUB_LOG" 2>/dev/null; then
+    echo "ERROR: develop-run.sh called transition — that is the notify job's responsibility"
+    exit 1
+  fi
+  true
 }
 
 # =============================================================================
@@ -639,8 +649,12 @@ STUB
   grep -q "gh pr create" "$GH_STUB_LOG"
   # PR body must contain Closes #42
   grep -q "Closes #42" "$GH_PR_BODY_LOG"
-  # Transition to swarm:qa must have happened
-  grep -q "swarm:qa" "$GH_STUB_LOG"
+  # Transition is the notify job's responsibility — NOT called by develop-run
+  if grep -q "swarm:qa" "$GH_STUB_LOG" 2>/dev/null; then
+    echo "ERROR: develop-run.sh called transition — that is the notify job's responsibility"
+    exit 1
+  fi
+  true
 }
 
 # =============================================================================
@@ -769,8 +783,11 @@ STUB
   # PR must have been created
   grep -q "gh pr create" "$GH_STUB_LOG"
 
-  # Transition to swarm:qa must have fired
-  grep -q "swarm:qa" "$GH_STUB_LOG"
+  # Transition is the notify job's responsibility — NOT called by develop-run
+  if grep -q "swarm:qa" "$GH_STUB_LOG" 2>/dev/null; then
+    echo "ERROR: develop-run.sh called transition — that is the notify job's responsibility"
+    exit 1
+  fi
 
   # bump-attempts must NOT have been called
   ! grep -q "swarm:attempts" "$GH_STUB_LOG"

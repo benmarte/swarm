@@ -331,19 +331,6 @@ if [ -n "${GITHUB_OUTPUT:-}" ]; then
   } >> "$GITHUB_OUTPUT"
 fi
 
-# ---------------------------------------------------------------------------
-# TRANSITION: swarm:develop → swarm:qa
-# ---------------------------------------------------------------------------
-echo "develop-run: transitioning issue #$ISSUE_NUMBER from swarm:develop to swarm:qa"
-
-export ISSUE_NUMBER
-export FROM_STAGE="swarm:develop"
-export TO_STAGE="swarm:qa"
-export POST_COMMENT="true"
-export GH_TOKEN
-export SWARM_TOKEN="${SWARM_TOKEN:-}"
-export GITHUB_REPOSITORY
-export ACTION_PATH="$ACTION_ROOT/../transition"
-bash "$TRANSITION_SH"
-
 echo "develop-run: complete — PR at $pr_url"
+# Transition (swarm:develop → swarm:qa) is performed by the downstream notify
+# job in develop.yml so that sink secrets never share a job with the LLM adapter.

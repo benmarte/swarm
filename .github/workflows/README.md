@@ -35,8 +35,8 @@ Runs the **validator** agent on a newly-queued issue and routes the verdict:
 | `dry-run` | boolean | `false` | When `true`, logs intended transitions/mutations without executing any GitHub API writes. |
 | `adapter` | string | `claude` | Agent adapter forwarded to `agent-run`. One of: `claude`, `openai-compat`. |
 | `model` | string | `""` | LLM model identifier set as `SWARM_LLM_MODEL`. Consumed by `openai-compat`; ignored by `claude`. |
-| `enabled-sinks` | string | `""` | *Reserved* — comma-separated notify sinks. Wired when `transition` exposes the input. |
-| `buzz-channel` | string | `""` | *Reserved* — Buzz/Nostr channel UUID. Wired when `notify` passthrough is added. |
+| `enabled-sinks` | string | `""` | Comma-separated notify sinks (`slack,buzz,discord,teams`). Derived from `load-config`; passed to `transition` for notify fan-out. |
+| `buzz-channel` | string | `""` | Buzz/Nostr channel UUID. Derived from `load-config`; passed to `transition` for notify fan-out. |
 | `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
 | `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
@@ -46,6 +46,11 @@ Runs the **validator** agent on a newly-queued issue and routes the verdict:
 |--------|----------|-------------|
 | `SWARM_TOKEN` | No | Fine-grained PAT with `issues: write` scope for a distinct actor. Required for stage-label cascades — `GITHUB_TOKEN`-authored labels do not trigger downstream workflows (GitHub recursion guard). Falls back to `GITHUB_TOKEN` with a warning when absent. |
 | `SWARM_LLM_API_KEY` | No | Bearer token for the OpenAI-compatible LLM endpoint. Optional — omit for local endpoints that need no authentication. |
+| `SWARM_SLACK_WEBHOOK` | No | Slack incoming webhook URL. Required when `notify.slack: true` in config. |
+| `SWARM_DISCORD_WEBHOOK` | No | Discord webhook URL. Required when `notify.discord: true` in config. |
+| `SWARM_TEAMS_WEBHOOK` | No | Microsoft Teams webhook URL. Required when `notify.teams: true` in config. |
+| `SWARM_BUZZ_RELAY_URL` | No | Buzz/Nostr relay `wss://` URL. Required when `notify.buzz_channel` is set in config. |
+| `SWARM_BUZZ_PRIVATE_KEY` | No | Nostr private key (hex or nsec) for the buzz bot. Required when `notify.buzz_channel` is set in config. |
 
 **Caller example:**
 
@@ -90,8 +95,8 @@ Runs the **PM** agent on a confirmed issue and posts the resulting spec:
 | `dry-run` | boolean | `false` | When `true`, logs intended comment/transition without executing any GitHub API writes. |
 | `adapter` | string | `claude` | Agent adapter forwarded to `agent-run`. One of: `claude`, `openai-compat`. |
 | `model` | string | `""` | LLM model identifier set as `SWARM_LLM_MODEL`. Consumed by `openai-compat`; ignored by `claude`. |
-| `enabled-sinks` | string | `""` | *Reserved* — comma-separated notify sinks. Wired when `transition` exposes the input. |
-| `buzz-channel` | string | `""` | *Reserved* — Buzz/Nostr channel UUID. Wired when `notify` passthrough is added. |
+| `enabled-sinks` | string | `""` | Comma-separated notify sinks (`slack,buzz,discord,teams`). Derived from `load-config`; passed to `transition` for notify fan-out. |
+| `buzz-channel` | string | `""` | Buzz/Nostr channel UUID. Derived from `load-config`; passed to `transition` for notify fan-out. |
 | `engine-repo` | string | `benmarte/swarm` | Engine repository (`org/repo`). Override for forks. |
 | `engine-ref` | string | `v1` | Engine ref (tag, branch, or SHA) checked out into `.swarm-engine/`. Must match the ref pinned in the caller `uses:` directive. |
 
@@ -101,6 +106,11 @@ Runs the **PM** agent on a confirmed issue and posts the resulting spec:
 |--------|----------|-------------|
 | `SWARM_TOKEN` | No | Fine-grained PAT with `issues: write` scope for a distinct actor. Required for stage-label cascades — `GITHUB_TOKEN`-authored labels do not trigger downstream workflows (GitHub recursion guard). Falls back to `GITHUB_TOKEN` with a warning when absent. |
 | `SWARM_LLM_API_KEY` | No | Bearer token for the OpenAI-compatible LLM endpoint. Optional — omit for local endpoints that need no authentication. |
+| `SWARM_SLACK_WEBHOOK` | No | Slack incoming webhook URL. Required when `notify.slack: true` in config. |
+| `SWARM_DISCORD_WEBHOOK` | No | Discord webhook URL. Required when `notify.discord: true` in config. |
+| `SWARM_TEAMS_WEBHOOK` | No | Microsoft Teams webhook URL. Required when `notify.teams: true` in config. |
+| `SWARM_BUZZ_RELAY_URL` | No | Buzz/Nostr relay `wss://` URL. Required when `notify.buzz_channel` is set in config. |
+| `SWARM_BUZZ_PRIVATE_KEY` | No | Nostr private key (hex or nsec) for the buzz bot. Required when `notify.buzz_channel` is set in config. |
 
 **Caller example:**
 

@@ -26,6 +26,11 @@ outputs:
   notify-buzz-channel:
     description: Nostr/NIP-29 channel UUID for buzz notifications.
     value: ${{ steps.load.outputs.notify-buzz-channel }}
+  enabled-sinks:
+    description: >
+      Comma-separated list of configured notification sinks derived from notify.*
+      config booleans and buzz_channel presence. Empty when no sinks are configured.
+    value: ${{ steps.load.outputs.enabled-sinks }}
   runner-label:
     description: GitHub Actions runner label for agent jobs.
     value: ${{ steps.load.outputs.runner-label }}
