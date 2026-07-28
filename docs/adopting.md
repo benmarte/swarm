@@ -114,6 +114,31 @@ bootstrap: caller workflow snippet
 bootstrap: done.
 ```
 
+**What to look for:**
+
+- **Step 1 — labels:** On a fresh repo every label shows `created:`. If a label was already provisioned in a previous run it shows `skip (exists):`. The check uses the API exit code (not stdout), so both states are reliable.
+- **Step 3 — secrets:** Each successfully seeded key shows `seeded: KEY_NAME`. A key that could not be written shows a `warning:` line and is **not** counted in `total seeded`.
+
+**Always check the exit code.** Bootstrap exits non-zero if any secret fails to seed:
+
+```bash
+bash scripts/bootstrap.sh \
+  --env-file /path/to/your/consumer-repo/.env \
+  --repo owner/your-consumer-repo \
+  --reviewer yourgithubhandle
+echo "exit: $?"   # must be 0 — a non-zero value means one or more secrets did NOT seed
+```
+
+If bootstrap exits non-zero you will see a summary on stderr listing the failed keys:
+
+```
+bootstrap: the following secrets could NOT be seeded:
+    - ANTHROPIC_API_KEY
+bootstrap: secret seeding had failures — check token permissions and try again
+```
+
+Fix the `gh` authentication or token scopes and re-run. Bootstrap is idempotent — already-correct labels and environment settings are skipped; only the failed secrets need to succeed.
+
 Missing keys reported in step 4 are informational — they are credentials for features you have not enabled yet. Extra keys (in your `.env` but not in `.env.example`) are flagged so you know they will not be consumed.
 
 The generated `swarm.config.yml` is written to the directory where you ran bootstrap (the swarm clone root). Copy it to your consumer repo:
