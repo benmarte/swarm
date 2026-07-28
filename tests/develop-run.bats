@@ -191,7 +191,7 @@ teardown() {
 
   run bash "$ENGINE_SH"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"dry-run"* ]]
+  [[ "$output" == *"dry-run"* ]] || false
   [[ "$output" == *"swarm/issue-42"* ]] || [[ "$output" == *"issue-42"* ]]
 }
 
@@ -456,7 +456,7 @@ teardown() {
 
   run bash "$HEADLESS_ADAPTER"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"exited non-zero"* ]] || [[ "$output" == *"ERROR"* ]]
+  [[ "$output" == *"exited non-zero"* ]] || [[ "$output" == *"ERROR"* ]] || false
 
   rm -f "$spec_file" "$fail_cmd"
 }
@@ -482,7 +482,7 @@ PROBE
 
   run bash "$HEADLESS_ADAPTER"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"SWARM_PROMPT_FILE="* ]]
+  [[ "$output" == *"SWARM_PROMPT_FILE="* ]] || false
 
   rm -f "$spec_file" "$env_probe"
 }
@@ -506,7 +506,7 @@ PROBE
 
   run bash "$HEADLESS_ADAPTER"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"multi-word-stub ran"* ]] || [[ "$output" == *"complete"* ]]
+  [[ "$output" == *"multi-word-stub ran"* ]] || [[ "$output" == *"complete"* ]] || false
 
   rm -f "$spec_file" "$stub_script"
 }
@@ -695,8 +695,8 @@ STUB
 
   run bash "$ENGINE_SH"
   # Engine may succeed (GH_TOKEN fallback) — we only care about the warning
-  [[ "$output" == *"SWARM_TOKEN"* ]]
-  [[ "$output" == *"policy"* ]] || [[ "$output" == *"not permitted"* ]]
+  [[ "$output" == *"SWARM_TOKEN"* ]] || false
+  [[ "$output" == *"policy"* ]] || [[ "$output" == *"not permitted"* ]] || false
   [[ "$output" == *"pull_request"* ]] || [[ "$output" == *"pr-gates"* ]] || [[ "$output" == *"recursion"* ]]
 }
 
@@ -778,7 +778,7 @@ STUB
   }
 
   # Must log resume message
-  [[ "$output" == *"resuming existing implementation"* ]]
+  [[ "$output" == *"resuming existing implementation"* ]] || false
 
   # PR must have been created
   grep -q "gh pr create" "$GH_STUB_LOG"

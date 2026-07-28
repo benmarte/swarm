@@ -69,7 +69,7 @@ teardown() {
 
   run bash "$NOTIFY_SH"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"schema validation"* ]] || [[ "$output" == *"failed schema"* ]] || [[ "$output" == *"ERROR"* ]]
+  [[ "$output" == *"schema validation"* ]] || [[ "$output" == *"failed schema"* ]] || [[ "$output" == *"ERROR"* ]] || false
 
   # curl must NOT have been called
   [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "^curl" "$CURL_STUB_LOG"
@@ -145,10 +145,10 @@ teardown() {
   to="$(jq -r '.stage_to' "$FIXTURE_EVENT")"
   actor="$(jq -r '.actor' "$FIXTURE_EVENT")"
 
-  [[ "$payload_text" == *"$repo"* ]]
-  [[ "$payload_text" == *"$issue"* ]]
-  [[ "$payload_text" == *"$from"* ]]
-  [[ "$payload_text" == *"$to"* ]]
+  [[ "$payload_text" == *"$repo"* ]] || false
+  [[ "$payload_text" == *"$issue"* ]] || false
+  [[ "$payload_text" == *"$from"* ]] || false
+  [[ "$payload_text" == *"$to"* ]] || false
   [[ "$payload_text" == *"$actor"* ]]
 }
 
@@ -169,7 +169,7 @@ teardown() {
   run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
   [ "$status" -ne 0 ]
   # Must name both options so users know what to configure
-  [[ "$output" == *"SWARM_SLACK_WEBHOOK"* ]]
+  [[ "$output" == *"SWARM_SLACK_WEBHOOK"* ]] || false
   [[ "$output" == *"SWARM_SLACK_BOT_TOKEN"* ]]
 }
 
@@ -212,8 +212,8 @@ teardown() {
   issue="$(jq -r '.issue | tostring' "$FIXTURE_EVENT")"
   actor="$(jq -r '.actor' "$FIXTURE_EVENT")"
 
-  [[ "$payload_text" == *"$repo"* ]]
-  [[ "$payload_text" == *"$issue"* ]]
+  [[ "$payload_text" == *"$repo"* ]] || false
+  [[ "$payload_text" == *"$issue"* ]] || false
   [[ "$payload_text" == *"$actor"* ]]
 }
 
@@ -234,7 +234,7 @@ teardown() {
   run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
   [ "$status" -ne 0 ]
   # Must name both options so users know what to configure
-  [[ "$output" == *"SWARM_DISCORD_WEBHOOK"* ]]
+  [[ "$output" == *"SWARM_DISCORD_WEBHOOK"* ]] || false
   [[ "$output" == *"SWARM_DISCORD_BOT_TOKEN"* ]]
 }
 
@@ -287,8 +287,8 @@ teardown() {
   issue="$(jq -r '.issue | tostring' "$FIXTURE_EVENT")"
   actor="$(jq -r '.actor' "$FIXTURE_EVENT")"
 
-  [[ "$payload_text" == *"$repo"* ]]
-  [[ "$payload_text" == *"$issue"* ]]
+  [[ "$payload_text" == *"$repo"* ]] || false
+  [[ "$payload_text" == *"$issue"* ]] || false
   [[ "$payload_text" == *"$actor"* ]]
 }
 
@@ -321,11 +321,11 @@ teardown() {
 
   nak_args="$(cat "$NAK_LOG")"
   # Must have: event --auth --sec <key> -k 9 -c <text> -t h=<channel> <relay-url>
-  [[ "$nak_args" == *"--auth"* ]]
-  [[ "$nak_args" == *"--sec $SWARM_BUZZ_PRIVATE_KEY"* ]]
-  [[ "$nak_args" == *"-k 9"* ]]
-  [[ "$nak_args" == *"-c "* ]]
-  [[ "$nak_args" == *"h=$BUZZ_CHANNEL"* ]]
+  [[ "$nak_args" == *"--auth"* ]] || false
+  [[ "$nak_args" == *"--sec $SWARM_BUZZ_PRIVATE_KEY"* ]] || false
+  [[ "$nak_args" == *"-k 9"* ]] || false
+  [[ "$nak_args" == *"-c "* ]] || false
+  [[ "$nak_args" == *"h=$BUZZ_CHANNEL"* ]] || false
   [[ "$nak_args" == *"$SWARM_BUZZ_RELAY_URL"* ]]
 }
 
@@ -342,11 +342,11 @@ teardown() {
   actor="$(jq -r '.actor' "$FIXTURE_EVENT")"
   url="$(jq -r '.url' "$FIXTURE_EVENT")"
 
-  [[ "$nak_args" == *"$repo"* ]]
-  [[ "$nak_args" == *"$issue"* ]]
-  [[ "$nak_args" == *"$from"* ]]
-  [[ "$nak_args" == *"$to"* ]]
-  [[ "$nak_args" == *"$actor"* ]]
+  [[ "$nak_args" == *"$repo"* ]] || false
+  [[ "$nak_args" == *"$issue"* ]] || false
+  [[ "$nak_args" == *"$from"* ]] || false
+  [[ "$nak_args" == *"$to"* ]] || false
+  [[ "$nak_args" == *"$actor"* ]] || false
   [[ "$nak_args" == *"$url"* ]]
 }
 
@@ -392,7 +392,7 @@ teardown() {
   run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
   [ "$status" -eq 0 ]
   # Provisioner must report it found nak on PATH
-  [[ "$output" == *"using nak from PATH"* ]]
+  [[ "$output" == *"using nak from PATH"* ]] || false
   # curl must NOT have been called for the nak download URL
   [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "fiatjaf/nak" "$CURL_STUB_LOG"
 }
@@ -436,7 +436,7 @@ teardown() {
   run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
   [ "$status" -eq 0 ]
   # Provisioner must emit a "downloading" message
-  [[ "$output" == *"downloading"* ]]
+  [[ "$output" == *"downloading"* ]] || false
   # curl must have been called with the nak download URL
   grep -q "fiatjaf/nak/releases/download" "$CURL_STUB_LOG"
   # Provisioner must confirm the binary was verified
@@ -467,9 +467,9 @@ teardown() {
   run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
   [ "$status" -ne 0 ]
   # Must report checksum mismatch clearly
-  [[ "$output" == *"checksum mismatch"* ]]
+  [[ "$output" == *"checksum mismatch"* ]] || false
   # Must refuse to execute the binary
-  [[ "$output" == *"Refusing to execute"* ]]
+  [[ "$output" == *"Refusing to execute"* ]] || false
   # nak must NOT have been invoked
   [ ! -s "$NAK_LOG" ]
 }
@@ -495,7 +495,7 @@ teardown() {
   run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
   [ "$status" -ne 0 ]
   # Must report the download failure clearly
-  [[ "$output" == *"failed to download nak"* ]]
+  [[ "$output" == *"failed to download nak"* ]] || false
   # nak must NOT have been invoked
   [ ! -s "$NAK_LOG" ]
 }
@@ -632,8 +632,8 @@ teardown() {
   issue="$(jq -r '.issue | tostring' "$FIXTURE_EVENT")"
   actor="$(jq -r '.actor' "$FIXTURE_EVENT")"
 
-  [[ "$payload_text" == *"$repo"* ]]
-  [[ "$payload_text" == *"$issue"* ]]
+  [[ "$payload_text" == *"$repo"* ]] || false
+  [[ "$payload_text" == *"$issue"* ]] || false
   [[ "$payload_text" == *"$actor"* ]]
 }
 
@@ -659,7 +659,7 @@ teardown() {
 
   run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"ok:false"* ]]
+  [[ "$output" == *"ok:false"* ]] || false
   [[ "$output" == *"channel_not_found"* ]]
 }
 
@@ -732,8 +732,8 @@ teardown() {
   issue="$(jq -r '.issue | tostring' "$FIXTURE_EVENT")"
   actor="$(jq -r '.actor' "$FIXTURE_EVENT")"
 
-  [[ "$payload_text" == *"$repo"* ]]
-  [[ "$payload_text" == *"$issue"* ]]
+  [[ "$payload_text" == *"$repo"* ]] || false
+  [[ "$payload_text" == *"$issue"* ]] || false
   [[ "$payload_text" == *"$actor"* ]]
 }
 
@@ -862,7 +862,7 @@ YAML
 
   run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_EVENT"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"invalid"* ]] || [[ "$output" == *"ERROR"* ]]
+  [[ "$output" == *"invalid"* ]] || [[ "$output" == *"ERROR"* ]] || false
   # curl must NOT have been called — validation must be pre-flight
   [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "^curl" "$CURL_STUB_LOG"
 }
@@ -895,7 +895,7 @@ YAML
 
   run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_EVENT"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"snowflake"* ]] || [[ "$output" == *"invalid"* ]] || [[ "$output" == *"ERROR"* ]]
+  [[ "$output" == *"snowflake"* ]] || [[ "$output" == *"invalid"* ]] || [[ "$output" == *"ERROR"* ]] || false
   # curl must NOT have been called
   [ ! -s "$CURL_STUB_LOG" ] || ! grep -q "^curl" "$CURL_STUB_LOG"
 }
@@ -1035,7 +1035,7 @@ YAML
 
   body="$(cat "$CURL_BODY_LOG")"
   section_text="$(echo "$body" | jq -r '.blocks[0].text.text')"
-  [[ "$section_text" == *"confirmed"* ]]
+  [[ "$section_text" == *"confirmed"* ]] || false
   [[ "$section_text" == *"no duplicate found"* ]]
 }
 
@@ -1119,8 +1119,8 @@ YAML
 
   body="$(cat "$CURL_BODY_LOG")"
   footer="$(echo "$body" | jq -r '.embeds[0].footer.text')"
-  [[ "$footer" == *"benmarte/swarm"* ]]
-  [[ "$footer" == *"validator"* ]]
+  [[ "$footer" == *"benmarte/swarm"* ]] || false
+  [[ "$footer" == *"validator"* ]] || false
   [[ "$footer" == *"#7"* ]]
 }
 
@@ -1168,8 +1168,8 @@ https://github.com/benmarte/swarm/issues/7"
   [ "$status" -eq 0 ]
 
   nak_args="$(cat "$NAK_LOG")"
-  [[ "$nak_args" == *"confirmed"* ]]
-  [[ "$nak_args" == *"no duplicate found"* ]]
+  [[ "$nak_args" == *"confirmed"* ]] || false
+  [[ "$nak_args" == *"no duplicate found"* ]] || false
   [[ "$nak_args" == *"https://github.com/benmarte/swarm/issues/7"* ]]
 }
 
@@ -1181,8 +1181,8 @@ https://github.com/benmarte/swarm/issues/7"
 
   nak_args="$(cat "$NAK_LOG")"
   # Fallback format includes role/verdict/evidence from event JSON
-  [[ "$nak_args" == *"validator"* ]]
-  [[ "$nak_args" == *"confirmed"* ]]
+  [[ "$nak_args" == *"validator"* ]] || false
+  [[ "$nak_args" == *"confirmed"* ]] || false
   [[ "$nak_args" == *"no duplicate"* ]]
 }
 
@@ -1193,7 +1193,7 @@ https://github.com/benmarte/swarm/issues/7"
   [ "$status" -eq 0 ]
 
   nak_args="$(cat "$NAK_LOG")"
-  [[ "$nak_args" == *"blocked"* ]]
+  [[ "$nak_args" == *"blocked"* ]] || false
   [[ "$nak_args" == *"SHA leaked"* ]]
 }
 
@@ -1217,7 +1217,7 @@ https://github.com/benmarte/swarm/issues/7"
 
   body="$(cat "$CURL_BODY_LOG")"
   payload_text="$(echo "$body" | jq -r 'tostring')"
-  [[ "$payload_text" == *"no duplicate found"* ]]
+  [[ "$payload_text" == *"no duplicate found"* ]] || false
   [[ "$payload_text" == *"acceptance criteria"* ]]
 }
 
@@ -1251,9 +1251,9 @@ with open(sys.argv[1]) as f:
 print(t.safe_substitute(os.environ).strip())
 ' "$_tmpl")"
 
-  [[ "$rendered" == *"validator"* ]]
-  [[ "$rendered" == *"confirmed"* ]]
-  [[ "$rendered" == *"no duplicate found"* ]]
+  [[ "$rendered" == *"validator"* ]] || false
+  [[ "$rendered" == *"confirmed"* ]] || false
+  [[ "$rendered" == *"no duplicate found"* ]] || false
   [[ "$rendered" == *"https://github.com/benmarte/swarm/issues/7"* ]]
 }
 
@@ -1272,8 +1272,8 @@ with open(sys.argv[1]) as f:
 print(t.safe_substitute(os.environ).strip())
 ' "$_tmpl")"
 
-  [[ "$rendered" == *"validator"* ]]
-  [[ "$rendered" == *"confirmed"* ]]
+  [[ "$rendered" == *"validator"* ]] || false
+  [[ "$rendered" == *"confirmed"* ]] || false
   [[ "$rendered" == *"Issue is valid"* ]]
 }
 
@@ -1292,8 +1292,8 @@ with open(sys.argv[1]) as f:
 print(t.safe_substitute(os.environ).strip())
 ' "$_tmpl")"
 
-  [[ "$rendered" == *"blocked"* ]]
-  [[ "$rendered" == *"Human attention"* ]]
+  [[ "$rendered" == *"blocked"* ]] || false
+  [[ "$rendered" == *"Human attention"* ]] || false
   [[ "$rendered" == *"SHA leaked"* ]]
 }
 
@@ -1319,7 +1319,7 @@ print(t.safe_substitute(os.environ).strip())
   body="$(cat "$CURL_BODY_LOG")"
   section_text="$(echo "$body" | jq -r '.blocks[0].text.text')"
   # Template includes role+verdict+summary from the rich fixture
-  [[ "$section_text" == *"validator"* ]]
+  [[ "$section_text" == *"validator"* ]] || false
   [[ "$section_text" == *"confirmed"* ]]
 }
 
@@ -1850,7 +1850,7 @@ assert anchors['discord'] == '222222222222222222', 'wrong discord value'
   [ ! -s "$_body_log" ]
 
   # Output must warn about the read failure (not silently drop)
-  [[ "$output" == *"WARNING"* ]] || [[ "$output" == *"failed"* ]] || [[ "$output" == *"read"* ]]
+  [[ "$output" == *"WARNING"* ]] || [[ "$output" == *"failed"* ]] || [[ "$output" == *"read"* ]] || false
 
   rm -f "$_body_log"
   unset GH_STUB_ISSUE_GET_FAIL GH_STUB_ISSUE_BODY_LOG

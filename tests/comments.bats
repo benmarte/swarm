@@ -67,9 +67,9 @@ teardown() {
 
   local rendered
   rendered="$(cat "$body_file")"
-  [[ "$rendered" == *"**swarm validator**"* ]]
-  [[ "$rendered" == *"**Verdict:** confirmed"* ]]
-  [[ "$rendered" == *"actionable"* ]]
+  [[ "$rendered" == *"**swarm validator**"* ]] || false
+  [[ "$rendered" == *"**Verdict:** confirmed"* ]] || false
+  [[ "$rendered" == *"actionable"* ]] || false
   [[ "$rendered" == *"no duplicate found"* ]]
 }
 
@@ -86,8 +86,8 @@ teardown() {
 
   local rendered
   rendered="$(cat "$body_file")"
-  [[ "$rendered" == *"**swarm reviewer**"* ]]
-  [[ "$rendered" == *"**Review:** approve"* ]]
+  [[ "$rendered" == *"**swarm reviewer**"* ]] || false
+  [[ "$rendered" == *"**Review:** approve"* ]] || false
   [[ "$rendered" == *"All acceptance criteria met."* ]]
 }
 
@@ -103,8 +103,8 @@ teardown() {
 
   local rendered
   rendered="$(cat "$body_file")"
-  [[ "$rendered" == *"**swarm docs**"* ]]
-  [[ "$rendered" == *"**Docs:** posted"* ]]
+  [[ "$rendered" == *"**swarm docs**"* ]] || false
+  [[ "$rendered" == *"**Docs:** posted"* ]] || false
   [[ "$rendered" == *"Documentation written"* ]]
 }
 
@@ -121,7 +121,7 @@ teardown() {
 
   local rendered
   rendered="$(cat "$body_file")"
-  [[ "$rendered" == *"**swarm**"* ]]
+  [[ "$rendered" == *"**swarm**"* ]] || false
   [[ "$rendered" == *"Closed by PR #42"* ]]
 }
 
@@ -137,8 +137,8 @@ teardown() {
 
   local rendered
   rendered="$(cat "$body_file")"
-  [[ "$rendered" == *"**Blocked**"* ]]
-  [[ "$rendered" == *"injection vulnerability"* ]]
+  [[ "$rendered" == *"**Blocked**"* ]] || false
+  [[ "$rendered" == *"injection vulnerability"* ]] || false
   [[ "$rendered" == *"pipeline:blocked"* ]]
 }
 
@@ -166,7 +166,7 @@ teardown() {
   local rendered
   rendered="$(cat "$body_file")"
   # Backtick content must appear as literal text, not be executed
-  [[ "$rendered" == *'`backticks`'* ]]
+  [[ "$rendered" == *'`backticks`'* ]] || false
   # The literal text from SUMMARY must appear
   [[ "$rendered" == *'backticks'* ]]
 }
@@ -186,7 +186,7 @@ teardown() {
   local rendered
   rendered="$(cat "$body_file")"
   # The literal $(id) text should appear, not an expanded uid
-  [[ "$rendered" == *'$(id)'* ]]
+  [[ "$rendered" == *'$(id)'* ]] || false
   # The word "injected" is OK if it appears literally — it should not be a side effect
   # Verify the file exists and is non-empty (rendering succeeded)
   [ -s "$body_file" ]

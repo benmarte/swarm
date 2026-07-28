@@ -76,7 +76,7 @@ teardown() {
 
   run bash "$TRANSITION_SH"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"no-op"* ]]
+  [[ "$output" == *"no-op"* ]] || false
 
   # No DELETE or POST label calls should have been made
   ! grep -q "DELETE" "$GH_STUB_LOG" || true
@@ -97,7 +97,7 @@ teardown() {
   run bash "$TRANSITION_SH"
   [ "$status" -ne 0 ]
   [[ "$output" == *"not a valid swarm stage label"* ]] || \
-    [[ "${lines[*]}" == *"not a valid swarm stage label"* ]]
+    [[ "${lines[*]}" == *"not a valid swarm stage label"* ]] || false
 
   # No gh calls should have been made
   [ ! -s "$GH_STUB_LOG" ] || ! grep -q "^gh api" "$GH_STUB_LOG"
@@ -111,7 +111,7 @@ teardown() {
   run bash "$TRANSITION_SH"
   [ "$status" -ne 0 ]
   [[ "$output" == *"not a valid swarm stage label"* ]] || \
-    [[ "${lines[*]}" == *"not a valid swarm stage label"* ]]
+    [[ "${lines[*]}" == *"not a valid swarm stage label"* ]] || false
 
   [ ! -s "$GH_STUB_LOG" ] || ! grep -q "^gh api" "$GH_STUB_LOG"
 }
@@ -185,7 +185,7 @@ teardown() {
 
   run bash "$TRANSITION_SH"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"positive integer"* ]] || [[ "${lines[*]}" == *"positive integer"* ]]
+  [[ "$output" == *"positive integer"* ]] || [[ "${lines[*]}" == *"positive integer"* ]] || false
 
   # No gh calls should have been made
   [ ! -s "$GH_STUB_LOG" ] || ! grep -q "^gh api" "$GH_STUB_LOG"
@@ -228,7 +228,7 @@ teardown() {
   [ "$status" -eq 0 ]
 
   # Warning lines must appear in stderr (captured in output by bats)
-  [[ "$output" == *"WARNING: SWARM_TOKEN not set"* ]]
+  [[ "$output" == *"WARNING: SWARM_TOKEN not set"* ]] || false
   [[ "$output" == *"Stage cascade will NOT trigger"* ]]
 }
 
@@ -312,7 +312,7 @@ teardown() {
   [ "$status" -eq 0 ]
 
   # The private key value must not appear in stdout/stderr
-  [[ "$output" != *"secret-private-key-must-not-appear-in-logs"* ]]
+  [[ "$output" != *"secret-private-key-must-not-appear-in-logs"* ]] || false
 
   rm -f "$NAK_LOG"
 }
@@ -338,7 +338,7 @@ teardown() {
   [ "$status" -eq 0 ]
 
   # Warning must be emitted naming the failing sinks
-  [[ "$output" == *"WARNING"* ]]
+  [[ "$output" == *"WARNING"* ]] || false
   [[ "$output" == *"notify"*"failed"* ]] || [[ "$output" == *"notifications not delivered"* ]]
 }
 
@@ -354,7 +354,7 @@ teardown() {
 
   run bash "$TRANSITION_SH"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"no sinks configured"* ]]
+  [[ "$output" == *"no sinks configured"* ]] || false
 
   # nak must NOT have been called
   [ ! -s "$NAK_LOG" ]

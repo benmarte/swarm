@@ -48,3 +48,54 @@ REPO_ROOT="$(git -C "$(dirname "$BATS_TEST_FILENAME")" rev-parse --show-toplevel
     false
   }
 }
+
+@test "suite: no unbound mid-body '[[ ]]' assertion (#78)" {
+  # A `[[ ]]` that is not the final command of its test body can be FALSE and
+  # the test still reports ok. `[ ]`, `false` and failing commands all abort
+  # correctly — the exemption is specific to `[[ ]]`.
+  #
+  #   @test "x" { [[ "abc" == "xyz" ]]; true; }   ->  ok
+  #
+  # 118 of 242 assertions in this suite were in that state. Binding them found
+  # exactly one that was actually false (a whoami check that could never hold),
+  # which is the point: an assertion that cannot fail also cannot tell you it
+  # is wrong.
+  #
+  # Mid-body `[[ ]]` must therefore end with `|| false` or `|| return 1`.
+  run python3 - "$REPO_ROOT" <<'PYEOF'
+import re, sys, glob, os
+root = sys.argv[1]
+bad = []
+for path in sorted(glob.glob(os.path.join(root, 'tests', '*.bats'))):
+    lines = open(path).read().split('\n')
+    i = 0
+    while i < len(lines):
+        if lines[i].startswith('@test '):
+            j = i + 1
+            body = []
+            while j < len(lines) and lines[j] != '}':
+                body.append((j, lines[j])); j += 1
+            ex = [(n, l) for n, l in body if l.strip() and not l.strip().startswith('#')]
+            last = ex[-1][0] if ex else None
+            for n, l in ex:
+                if not re.match(r'^\s*\[\[', l) or n == last:
+                    continue
+                # A line continuing into the next (|| \ or trailing &&) is part
+                # of a larger construct; judge that construct by its final line.
+                if l.rstrip().endswith('\\') or not l.rstrip().endswith((']]', 'false', 'return 1')):
+                    continue
+                if re.search(r'\|\|\s*(false|return 1)\s*$', l):
+                    continue
+                bad.append(f"{os.path.relpath(path, root)}:{n+1}: {l.strip()[:80]}")
+            i = j
+        i += 1
+if bad:
+    print("unbound mid-body [[ ]] assertion(s) — append '|| false':")
+    print("\n".join(bad))
+    sys.exit(1)
+PYEOF
+  [ "$status" -eq 0 ] || {
+    echo "$output" | sed 's/^/# /' >&3
+    false
+  }
+}
