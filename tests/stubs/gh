@@ -174,7 +174,9 @@ if [ "${1:-}" = "api" ]; then
     if printf '%s' "$existing" | grep -qF "$label_name"; then
       printf '{"name":"%s"}\n' "$label_name"
     else
-      # Simulate 404 — exit non-zero so bootstrap skips to create
+      # Real gh api prints a JSON error body to stdout on 404 then exits 1.
+      # Emulate that exactly so exit-code-vs-stdout checks regress loudly here.
+      printf '{"message":"Not Found","documentation_url":"https://docs.github.com/rest","status":"404"}\n'
       exit 1
     fi
     exit 0
@@ -190,13 +192,48 @@ fi
 
 # ── gh secret set ────────────────────────────────────────────────────────────
 if [ "${1:-}" = "secret" ] && [ "${2:-}" = "set" ]; then
+  # Reject unknown flags the same way real gh does — this catches --body-file
+  # which does not exist in all gh versions and would silently fail otherwise.
+  i=3
+  args=("$@")
+  while [ $i -lt ${#args[@]} ]; do
+    arg="${args[$i]}"
+    case "$arg" in
+      --repo|-R|--env|-e|--app|-a|--no-store|--org|-o)
+        # known flags — skip their value arg
+        i=$((i+1))
+        ;;
+      --body|-b)
+        # known flag — skip value arg
+        i=$((i+1))
+        ;;
+      -*)
+        # Unknown flag — real gh exits 1 with an error message
+        printf 'unknown flag: %s\nUsage:  gh secret set <secret-name>\n' "$arg" >&2
+        exit 1
+        ;;
+      *)
+        ;;
+    esac
+    i=$((i+1))
+  done
+
   # Log the invocation (key name visible; value must NOT be logged)
   # We record the key name only (it appears as arg after "set"), never the value
-  # (which arrives via stdin / --body-file /dev/stdin).
+  # (which arrives via stdin).
   key_name="${3:-UNKNOWN_KEY}"
   echo "gh secret set $key_name --repo [redacted] [value-via-stdin]" >> "$LOG"
   # Drain stdin so the caller's pipe closes cleanly
   cat > /dev/null
+
+  # Support simulated failure: GH_STUB_SECRET_FAIL is a space-separated list
+  # of key names that should fail.
+  fail_keys="${GH_STUB_SECRET_FAIL:-}"
+  if [ -n "$fail_keys" ] && printf '%s' "$fail_keys" | grep -qwF "$key_name"; then
+    printf 'error setting secret "%s"\n' "$key_name" >&2
+    exit 1
+  fi
+
   exit 0
 fi
 

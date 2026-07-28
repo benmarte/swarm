@@ -136,20 +136,22 @@ while IFS='|' read -r label_name label_color label_desc; do
     continue
   fi
 
-  # Check if label already exists
-  existing="$(gh api "repos/$REPO/labels/$label_name" --jq '.name' 2>/dev/null || true)"
-  if [ -n "$existing" ]; then
+  # Check if label already exists — use exit code, NOT stdout.
+  # Real gh api prints a JSON error body to stdout on 404 so testing stdout
+  # always sees non-empty output and would incorrectly report "exists".
+  if gh api "repos/$REPO/labels/$label_name" --silent >/dev/null 2>&1; then
     echo "  skip (exists): $label_name"
   else
-    gh api "repos/$REPO/labels" \
+    if gh api "repos/$REPO/labels" \
       --method POST \
       --field "name=$label_name" \
       --field "color=$label_color" \
       --field "description=$label_desc" \
-      --silent 2>/dev/null || {
-        echo "  warning: could not create label '$label_name' (may already exist)" >&2
-      }
-    echo "  created: $label_name"
+      --silent >/dev/null 2>&1; then
+      echo "  created: $label_name"
+    else
+      echo "  warning: could not create label '$label_name'" >&2
+    fi
   fi
 done <<EOF
 $(printf '%s' "$LABELS")
@@ -188,13 +190,16 @@ else
   # Build the reviewers JSON payload using the resolved user ID
   reviewers_json="[{\"type\":\"User\",\"id\":$REVIEWER_ID}]"
 
-  gh api "repos/$REPO/environments/swarm-approval" \
+  if gh api "repos/$REPO/environments/swarm-approval" \
     --method PUT \
     --field "prevent_self_review=false" \
     --field "reviewers=$reviewers_json" \
-    --silent 2>/dev/null || true
-
-  echo "  created/updated: swarm-approval (reviewer: $REVIEWER)"
+    --silent >/dev/null 2>&1; then
+    echo "  created/updated: swarm-approval (reviewer: $REVIEWER)"
+  else
+    echo "bootstrap: could not create/update swarm-approval environment" >&2
+    exit 1
+  fi
 fi
 
 # ── Step 3: Parse env file and seed secrets ───────────────────────────────────
@@ -236,9 +241,10 @@ while IFS= read -r line; do
   fi
 done < "$ENV_FILE"
 
-# Seed each present key via gh secret set using --body (value via stdin flag)
+# Seed each present key via gh secret set (value via stdin — never in argv).
 # Values never appear in args (avoiding ps aux exposure) or in any output.
 seeded=0
+seed_failures=""
 while IFS= read -r key; do
   [ -z "$key" ] && continue
 
@@ -256,16 +262,19 @@ while IFS= read -r key; do
 
   if [ "$DRY_RUN" = "true" ]; then
     echo "  dry-run: gh secret set $key --repo $REPO [value redacted]"
+    seeded=$((seeded + 1))
   else
-    # Pass value via stdin to gh secret set — never in argv
-    printf '%s' "$secret_value" | gh secret set "$key" \
-      --repo "$REPO" \
-      --body-file /dev/stdin 2>/dev/null || {
-        echo "  warning: could not set secret '$key'" >&2
-      }
-    echo "  seeded: $key"
+    # Pass value via stdin to gh secret set — never in argv.
+    # --body-file does not exist in all gh versions; stdin is the portable form.
+    if printf '%s' "$secret_value" | gh secret set "$key" --repo "$REPO" 2>/dev/null; then
+      echo "  seeded: $key"
+      seeded=$((seeded + 1))
+    else
+      echo "  warning: could not set secret '$key'" >&2
+      seed_failures="${seed_failures}${key}
+"
+    fi
   fi
-  seeded=$((seeded + 1))
   # Scrub from memory
   secret_value=""
 done <<EOF
@@ -273,6 +282,18 @@ $(printf '%s' "$present_keys")
 EOF
 
 echo "  total seeded: $seeded key(s)"
+
+if [ -n "$seed_failures" ]; then
+  echo "bootstrap: the following secrets could NOT be seeded:" >&2
+  while IFS= read -r key; do
+    [ -z "$key" ] && continue
+    echo "    - $key" >&2
+  done <<EOF
+$(printf '%s' "$seed_failures")
+EOF
+  echo "bootstrap: secret seeding had failures — check token permissions and try again" >&2
+  exit 1
+fi
 
 # ── Step 4: Report missing and extra keys ─────────────────────────────────────
 echo ""
