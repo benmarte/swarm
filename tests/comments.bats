@@ -41,12 +41,18 @@ extract_details_from_fixture() {
 # render-comment.sh: golden template renders
 # ---------------------------------------------------------------------------
 
+teardown() {
+  # See #77 — cleanup lives here, not in a `trap ... EXIT` inside a test body,
+  # which makes a FAILING test vanish from TAP output entirely.
+  [ -n "${body_file:-}" ] && rm -f "$body_file"
+  return 0
+}
+
 @test "render-comment.sh: validator-verdict golden render from fixture outcome" {
   local fixture="$FIXTURES/validator-outcome.json"
   local template="$TEMPLATES/validator-verdict.md"
   local body_file
   body_file="$(mktemp)"
-  trap 'rm -f "$body_file"' EXIT
 
   local verdict summary details
   verdict="$(jq -r '.verdict' "$fixture")"
@@ -71,7 +77,6 @@ extract_details_from_fixture() {
   local template="$TEMPLATES/review-signoff.md"
   local body_file
   body_file="$(mktemp)"
-  trap 'rm -f "$body_file"' EXIT
 
   HEADER="**swarm reviewer**" \
     VERDICT="approve" \
@@ -90,7 +95,6 @@ extract_details_from_fixture() {
   local template="$TEMPLATES/docs-posted.md"
   local body_file
   body_file="$(mktemp)"
-  trap 'rm -f "$body_file"' EXIT
 
   HEADER="**swarm docs**" \
     SUMMARY="Documentation written and posted." \
@@ -108,7 +112,6 @@ extract_details_from_fixture() {
   local template="$TEMPLATES/issue-closed.md"
   local body_file
   body_file="$(mktemp)"
-  trap 'rm -f "$body_file"' EXIT
 
   HEADER="**swarm**" \
     PR="PR #42" \
@@ -126,7 +129,6 @@ extract_details_from_fixture() {
   local template="$TEMPLATES/blocked.md"
   local body_file
   body_file="$(mktemp)"
-  trap 'rm -f "$body_file"' EXIT
 
   HEADER="**swarm security**" \
     SUMMARY="Critical injection vulnerability found in commit SHA handling." \
@@ -149,7 +151,6 @@ extract_details_from_fixture() {
   local template="$TEMPLATES/validator-verdict.md"
   local body_file
   body_file="$(mktemp)"
-  trap 'rm -f "$body_file"' EXIT
 
   local verdict summary details
   verdict="$(jq -r '.verdict' "$fixture")"
@@ -174,7 +175,6 @@ extract_details_from_fixture() {
   local template="$TEMPLATES/validator-verdict.md"
   local body_file
   body_file="$(mktemp)"
-  trap 'rm -f "$body_file"' EXIT
 
   # Attempt to inject a shell variable expansion via SUMMARY
   HEADER="**swarm validator**" \
@@ -186,7 +186,7 @@ extract_details_from_fixture() {
   local rendered
   rendered="$(cat "$body_file")"
   # The literal $(id) text should appear, not an expanded uid
-  [[ "$rendered" == *'$(id)'* ]] || true
+  [[ "$rendered" == *'$(id)'* ]]
   # The word "injected" is OK if it appears literally — it should not be a side effect
   # Verify the file exists and is non-empty (rendering succeeded)
   [ -s "$body_file" ]
@@ -202,7 +202,6 @@ extract_details_from_fixture() {
   local template="$TEMPLATES/validator-verdict.md"
   local body_file
   body_file="$(mktemp)"
-  trap 'rm -f "$body_file"' EXIT
 
   local verdict summary details
   verdict="$(jq -r '.verdict' "$fixture")"
@@ -251,7 +250,6 @@ extract_details_from_fixture() {
 @test "render-comment.sh: missing template exits non-zero with clear message" {
   local body_file
   body_file="$(mktemp)"
-  trap 'rm -f "$body_file"' EXIT
 
   run bash "$RENDER_SH" "/nonexistent/template.md" "$body_file"
   [ "$status" -ne 0 ]
@@ -262,7 +260,6 @@ extract_details_from_fixture() {
   local template="$TEMPLATES/validator-verdict.md"
   local body_file
   body_file="$(mktemp)"
-  trap 'rm -f "$body_file"' EXIT
 
   HEADER="**swarm validator**" \
     VERDICT="confirmed" \

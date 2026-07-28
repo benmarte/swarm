@@ -41,6 +41,13 @@ setup() {
 
 teardown() {
   rm -f "$CURL_STUB_LOG" "$CURL_BODY_LOG" "$CURL_HEADER_LOG" "$NAK_LOG" "$NAK_QUEUE"
+  # Per-test temp paths, cleaned here rather than via `trap ... EXIT` in a test
+  # body: bats 1.14 drops a FAILING test from TAP entirely when the body sets
+  # an EXIT trap, so the failure vanishes instead of reporting (#77). teardown
+  # runs on both pass and fail.
+  [ -n "${_tmpdir:-}" ] && rm -rf "$_tmpdir"
+  [ -n "${_tmp:-}" ] && rm -f "$_tmp"
+  return 0
 }
 
 # =============================================================================
@@ -763,7 +770,6 @@ teardown() {
 @test "load-config: slack_channel alone enables the slack sink" {
   # A config with only slack_channel set (no boolean) should enable slack
   _tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$_tmpdir"' EXIT
   cat > "$_tmpdir/swarm.config.yml" <<'YAML'
 notify:
   slack_channel: C0TEST1234
@@ -784,7 +790,6 @@ YAML
 
 @test "load-config: discord_channel alone enables the discord sink" {
   _tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$_tmpdir"' EXIT
   cat > "$_tmpdir/swarm.config.yml" <<'YAML'
 notify:
   discord_channel: "123456789012345678"
@@ -803,7 +808,6 @@ YAML
 
 @test "load-config: slack_channel exported as notify-slack-channel output" {
   _tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$_tmpdir"' EXIT
   cat > "$_tmpdir/swarm.config.yml" <<'YAML'
 notify:
   slack_channel: C0TEST1234
@@ -822,7 +826,6 @@ YAML
 
 @test "load-config: discord_channel exported as notify-discord-channel output" {
   _tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$_tmpdir"' EXIT
   cat > "$_tmpdir/swarm.config.yml" <<'YAML'
 notify:
   discord_channel: "123456789012345678"
@@ -1069,7 +1072,6 @@ YAML
 @test "slack adapter: security event has orange color attachment" {
   # Create a minimal security event in a temp file
   _tmp="$(mktemp)"
-  trap 'rm -f "$_tmp"' EXIT
   jq '.event = "security"' "$FIXTURE_RICH" > "$_tmp"
 
   run bash "$ADAPTERS_DIR/slack.sh" "$_tmp"
@@ -1081,7 +1083,6 @@ YAML
 
 @test "slack adapter: reviewer event has purple color attachment" {
   _tmp="$(mktemp)"
-  trap 'rm -f "$_tmp"' EXIT
   jq '.event = "reviewer"' "$FIXTURE_RICH" > "$_tmp"
 
   run bash "$ADAPTERS_DIR/slack.sh" "$_tmp"

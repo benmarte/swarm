@@ -225,7 +225,7 @@ teardown() {
   [ "$status" -eq 0 ]
   # The literal username should not appear as a result of command substitution
   # (it's fine if the username appears in a path or prompt, but not as "$(whoami)" expansion)
-  [[ "$output" != *"$(whoami)"* ]] || true
+  [[ "$output" != *"$(whoami)"* ]]
   # The raw metacharacter sequence must not have been eval'd
   [[ "$output" != *"echo pwned"* ]] || [[ "$output" == *"echo pwned"* && "$output" != *"pwned
 "* ]]
