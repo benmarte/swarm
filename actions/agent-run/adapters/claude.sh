@@ -76,6 +76,18 @@ FULL_PROMPT="$ROLE_PROMPT
 ${SWARM_CONTEXT_JSON:-{}}
 \`\`\`"
 
+# Schema-repair retry (#69): agent-run.sh sets this after a failed validation.
+# Appended last so the correction is the final instruction the model reads.
+if [ -n "${SWARM_REPAIR_HINT:-}" ]; then
+  FULL_PROMPT="$FULL_PROMPT
+
+---
+
+## Correction Required
+
+${SWARM_REPAIR_HINT}"
+fi
+
 # ---------------------------------------------------------------------------
 # Invoke Claude headless
 # Decision roles must NOT execute code — read-only tools only.

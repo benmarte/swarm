@@ -105,6 +105,16 @@ ${SWARM_CONTEXT_JSON:-{}}
 
 Output ONLY valid JSON matching the swarm/outcome@1 schema."
 
+# Schema-repair retry (#69): agent-run.sh sets this after a failed validation.
+# Appended last so the correction is the final instruction the model reads.
+if [ -n "${SWARM_REPAIR_HINT:-}" ]; then
+  USER_CONTENT="${USER_CONTENT}
+
+## Correction Required
+
+${SWARM_REPAIR_HINT}"
+fi
+
 TIMEOUT_SECS="${SWARM_TIMEOUT:-300}"
 
 # Build auth header (empty string if no API key)

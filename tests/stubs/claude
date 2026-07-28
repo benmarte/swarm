@@ -9,8 +9,29 @@
 
 LOG="${CLAUDE_STUB_LOG:-/tmp/claude-stub.log}"
 
-# Record full argv
+# Invocation counter, kept in a SEPARATE file — one byte per call.
+#
+# Do NOT count lines in $LOG instead: the prompt is passed as argv, so the log
+# contains prompt text, and any prompt line beginning "claude " inflates the
+# count. That silently serves the wrong queued response and makes call-count
+# assertions lie. One byte per invocation cannot collide with content.
+COUNT_FILE="${LOG}.count"
+printf 'x' >> "$COUNT_FILE"
+
+# Record full argv (prompt included — tests assert on its content)
 echo "claude $*" >> "$LOG"
+
+# CLAUDE_STUB_QUEUE: file with one response envelope per line, served in order
+# by invocation number. Lets a test drive a multi-attempt repair loop (#69).
+# When the queue is exhausted the last line is repeated.
+if [ -n "${CLAUDE_STUB_QUEUE:-}" ] && [ -f "$CLAUDE_STUB_QUEUE" ]; then
+  # This invocation is already counted above, so the count IS the 1-based index
+  invocation="$(wc -c < "$COUNT_FILE" | tr -d ' ')"
+  response="$(sed -n "${invocation}p" "$CLAUDE_STUB_QUEUE")"
+  [ -z "$response" ] && response="$(tail -n 1 "$CLAUDE_STUB_QUEUE")"
+  echo "$response"
+  exit "${CLAUDE_STUB_STATUS:-0}"
+fi
 
 if [ -n "${CLAUDE_STUB_RESPONSE:-}" ]; then
   echo "$CLAUDE_STUB_RESPONSE"
