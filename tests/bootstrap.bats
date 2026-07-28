@@ -274,6 +274,121 @@ teardown() {
 }
 
 # ---------------------------------------------------------------------------
+# Regression #31: label existence check must use exit code, not stdout.
+# Real gh api prints a JSON error body to stdout on 404, so [ -n "$existing" ]
+# would always be true and every label would be falsely skipped on a fresh repo.
+# ---------------------------------------------------------------------------
+
+@test "regression #31: fresh repo — all labels reported created, not skipped" {
+  # GH_STUB_EXISTING_LABELS is unset → stub exits 1 + prints JSON on every label GET
+  unset GH_STUB_EXISTING_LABELS
+  run bash "$BOOTSTRAP_SH" \
+    --env-file "$FIXTURES_DIR/complete.env" \
+    --repo testowner/testrepo \
+    --reviewer stubuser
+  [ "$status" -eq 0 ]
+  # At least one "created:" line must appear
+  grep -q "  created:" <<< "$output"
+  # No "skip (exists)" must appear when no labels exist
+  ! grep -q "skip (exists)" <<< "$output"
+}
+
+@test "regression #31: fresh repo — stub log shows POST for label creation" {
+  unset GH_STUB_EXISTING_LABELS
+  run bash "$BOOTSTRAP_SH" \
+    --env-file "$FIXTURES_DIR/complete.env" \
+    --repo testowner/testrepo \
+    --reviewer stubuser
+  [ "$status" -eq 0 ]
+  # Stub log must contain at least one POST (label creation)
+  grep -q "POST" "$GH_STUB_LOG"
+}
+
+@test "regression #31: existing label is skipped — only exact match skipped" {
+  export GH_STUB_EXISTING_LABELS="swarm:go"
+  run bash "$BOOTSTRAP_SH" \
+    --env-file "$FIXTURES_DIR/complete.env" \
+    --repo testowner/testrepo \
+    --reviewer stubuser
+  [ "$status" -eq 0 ]
+  grep -q "skip (exists): swarm:go" <<< "$output"
+  # Other labels must still be created
+  grep -q "  created:" <<< "$output"
+}
+
+# ---------------------------------------------------------------------------
+# Regression #52: secret seeding must use stdin (no --body-file), and failure
+# must be loud: no "seeded" line, non-zero exit, failures summarised.
+# ---------------------------------------------------------------------------
+
+@test "regression #52: secret set success — key appears in seeded output" {
+  run bash "$BOOTSTRAP_SH" \
+    --env-file "$FIXTURES_DIR/complete.env" \
+    --repo testowner/testrepo \
+    --reviewer stubuser
+  [ "$status" -eq 0 ]
+  grep -q "seeded: SWARM_GITHUB_TOKEN" <<< "$output"
+  grep -q "total seeded:" <<< "$output"
+}
+
+@test "regression #52: secret set failure — exits non-zero, no false seeded line" {
+  export GH_STUB_SECRET_FAIL="SWARM_GITHUB_TOKEN"
+  run bash "$BOOTSTRAP_SH" \
+    --env-file "$FIXTURES_DIR/complete.env" \
+    --repo testowner/testrepo \
+    --reviewer stubuser
+  # Must exit non-zero when a secret fails
+  [ "$status" -ne 0 ]
+  # Must NOT report the failed key as seeded
+  ! grep -q "seeded: SWARM_GITHUB_TOKEN" <<< "$output"
+}
+
+@test "regression #52: secret set failure — warning appears for failed key" {
+  export GH_STUB_SECRET_FAIL="ANTHROPIC_API_KEY"
+  run bash "$BOOTSTRAP_SH" \
+    --env-file "$FIXTURES_DIR/complete.env" \
+    --repo testowner/testrepo \
+    --reviewer stubuser
+  [ "$status" -ne 0 ]
+  # Warning must mention the failing key (goes to stderr, captured in output by bats)
+  [[ "$output" == *"ANTHROPIC_API_KEY"* ]] || [[ "$stderr" == *"ANTHROPIC_API_KEY"* ]]
+}
+
+@test "regression #52: no secret value appears in output on success" {
+  run bash "$BOOTSTRAP_SH" \
+    --env-file "$FIXTURES_DIR/complete.env" \
+    --repo testowner/testrepo \
+    --reviewer stubuser
+  [ "$status" -eq 0 ]
+  # None of the fixture secret values may appear in stdout
+  [[ "$output" != *"ghp_fake_github_token_for_test"* ]]
+  [[ "$output" != *"sk-ant-fake-anthropic-key"* ]]
+  [[ "$output" != *"fake-llm-api-key"* ]]
+}
+
+@test "regression #52: no secret value appears in stub log on success" {
+  run bash "$BOOTSTRAP_SH" \
+    --env-file "$FIXTURES_DIR/complete.env" \
+    --repo testowner/testrepo \
+    --reviewer stubuser
+  [ "$status" -eq 0 ]
+  [ -f "$GH_STUB_LOG" ]
+  ! grep -q "ghp_fake_github_token_for_test" "$GH_STUB_LOG"
+  ! grep -q "sk-ant-fake-anthropic-key" "$GH_STUB_LOG"
+}
+
+@test "regression #52: hostile fixture — no value in output (non-dry-run)" {
+  run bash "$BOOTSTRAP_SH" \
+    --env-file "$FIXTURES_DIR/hostile-value.env" \
+    --repo testowner/testrepo \
+    --reviewer stubuser
+  # Status 0 or non-zero is allowed (hostile values may fail secret set)
+  # What must NOT happen: hostile value leaks into stdout
+  ! grep -q "xoxb-" <<< "$output"
+  ! grep -q "echo pwned" <<< "$output"
+}
+
+# ---------------------------------------------------------------------------
 # Dry-run never prints any value from the env file
 # ---------------------------------------------------------------------------
 
