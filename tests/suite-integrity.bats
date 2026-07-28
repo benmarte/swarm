@@ -41,8 +41,12 @@ REPO_ROOT="$(git -C "$(dirname "$BATS_TEST_FILENAME")" rev-parse --show-toplevel
   # `[[ cond ]] || true` always succeeds, so the assertion is decorative.
   # Legitimate uses of `|| true` exist for cleanup and command substitution,
   # so this only matches a `|| true` that terminates a [[ ]] or [ ] test.
-  run grep -rnE '^\s*(\[\[.*\]\]|\[.*\]).*\|\|[[:space:]]+true[[:space:]]*$' "$REPO_ROOT"/tests/*.bats
-  [ "$status" -ne 0 ] || {
+  # Strip trailing comments before matching, so `|| true # reason` cannot slip
+  # past; loop per file so the report names the file, not just a line number.
+  run bash -c 'for f in "$1"/tests/*.bats; do sed -E "s/[[:space:]]+#.*\$//" "$f" | grep -nE "^[[:space:]]*(\[\[.*\]\]|\[.*\]).*\|\|[[:space:]]+true[[:space:]]*\$" | sed "s|^|$f:|"; done' _ "$REPO_ROOT"
+  # Assert on OUTPUT, not exit status: each per-file pipeline ends in `sed`,
+  # which succeeds whether or not grep matched, so the status is always 0.
+  [ -z "$output" ] || {
     echo "# unfailable assertion(s) — the '|| true' makes these always pass:" >&3
     echo "$output" | sed 's/^/# /' >&3
     false
