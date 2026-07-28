@@ -56,7 +56,7 @@ setup() {
 
 teardown() {
   rm -rf "$GITHUB_WORKSPACE"
-  rm -f "$CLAUDE_STUB_LOG" "$TIMEOUT_STUB_LOG" "$CURL_STUB_LOG" "$CURL_BODY_LOG"
+  rm -f "$CLAUDE_STUB_LOG" "$TIMEOUT_STUB_LOG" "$CURL_STUB_LOG" "$CURL_BODY_LOG" "$CLAUDE_STUB_LOG.count"
 }
 
 # =============================================================================
@@ -494,7 +494,7 @@ VALID_ENVELOPE='{"type":"result","subtype":"success","is_error":false,"result":"
 
   [ "$status" -eq 0 ]
   # Two model calls: the rejected one and the repaired one
-  [ "$(grep -c '^claude ' "$CLAUDE_STUB_LOG")" -eq 2 ]
+  [ "$(wc -c < "$CLAUDE_STUB_LOG.count" | tr -d " ")" -eq 2 ]
   # The surviving outcome.json is the repaired one
   run jq -r '.notes' "$GITHUB_WORKSPACE/outcome.json"
   [ "$output" = "repaired" ]
@@ -536,13 +536,13 @@ VALID_ENVELOPE='{"type":"result","subtype":"success","is_error":false,"result":"
   [ "$status" -eq 1 ]
   [[ "$output" == *"still schema-invalid after 2 attempt(s)"* ]]
   # Exactly the configured number of attempts — no runaway retrying
-  [ "$(grep -c '^claude ' "$CLAUDE_STUB_LOG")" -eq 2 ]
+  [ "$(wc -c < "$CLAUDE_STUB_LOG.count" | tr -d " ")" -eq 2 ]
 }
 
 @test "agent-run: first-attempt success costs exactly one model call" {
   run bash "$REPO_ROOT/actions/agent-run/agent-run.sh"
   [ "$status" -eq 0 ]
-  [ "$(grep -c '^claude ' "$CLAUDE_STUB_LOG")" -eq 1 ]
+  [ "$(wc -c < "$CLAUDE_STUB_LOG.count" | tr -d " ")" -eq 1 ]
   # No correction section when nothing needed repairing
   [[ "$output" != *"retrying with corrective context"* ]]
 }
@@ -583,4 +583,20 @@ VALID_ENVELOPE='{"type":"result","subtype":"success","is_error":false,"result":"
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"still schema-invalid after 2 attempt(s)"* ]]
+}
+
+@test "claude stub: invocation counter is not fooled by prompt content" {
+  # The prompt is passed as argv and therefore lands in the log. Counting log
+  # lines that start with "claude " would count prompt text as extra calls,
+  # silently serving the wrong queued response and making every call-count
+  # assertion in this file unreliable.
+  run bash "$STUBS_DIR/claude" -p "line one
+claude is mentioned at the start of this line
+last line"
+  [ "$status" -eq 0 ]
+
+  # Exactly one real invocation
+  [ "$(wc -c < "$CLAUDE_STUB_LOG.count" | tr -d ' ')" -eq 1 ]
+  # ...while the naive line-count would have said 2
+  [ "$(grep -c '^claude ' "$CLAUDE_STUB_LOG")" -eq 2 ]
 }
