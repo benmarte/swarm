@@ -59,9 +59,11 @@ _swarm_anchor_validate_value() {
 # ---------------------------------------------------------------------------
 
 # _swarm_anchor_fetch_body <repo> <issue>
-# Prints the raw issue body string, or empty string on any gh/API error.
+# Prints the raw issue body string.
+# Returns 0 on success (even if body is empty), non-zero on gh/API failure.
+# IMPORTANT: does NOT use '|| true' — callers MUST check the return code.
 _swarm_anchor_fetch_body() {
-  gh api "/repos/${1}/issues/${2}" --jq '.body // ""' 2>/dev/null || true
+  gh api "/repos/${1}/issues/${2}" --jq '.body // ""' 2>/dev/null
 }
 
 # _swarm_anchor_parse_json <body>
@@ -94,7 +96,11 @@ swarm_anchor_read() {
     printf '{}'
     return 0
   fi
-  _body="$(_swarm_anchor_fetch_body "$_repo" "$_issue")"
+  if ! _body="$(_swarm_anchor_fetch_body "$_repo" "$_issue")"; then
+    echo "anchor: WARNING: gh GET failed for ${_repo}#${_issue} — treating as no anchor (no write will occur)" >&2
+    printf '{}'
+    return 0
+  fi
   _json="$(_swarm_anchor_parse_json "$_body")"
   if [ -n "$_json" ]; then
     printf '%s' "$_json"
@@ -124,8 +130,13 @@ swarm_anchor_set() {
     return 0
   fi
 
-  # Fresh read at write time (concurrency safety — not the cached value from notify start)
-  _body="$(_swarm_anchor_fetch_body "$_repo" "$_issue")"
+  # Fresh read at write time (concurrency safety — not the cached value from notify start).
+  # ABORT if the read fails: computing a new body from an empty string would produce a
+  # marker-only body and PATCH it back, silently destroying the real issue body.
+  if ! _body="$(_swarm_anchor_fetch_body "$_repo" "$_issue")"; then
+    echo "anchor: WARNING: gh GET failed for ${_repo}#${_issue} — skipping anchor write to avoid data loss" >&2
+    return 0
+  fi
 
   _old_json="$(_swarm_anchor_parse_json "$_body")"
   [ -z "$_old_json" ] && _old_json="{}"
@@ -140,13 +151,16 @@ swarm_anchor_set() {
   _new_marker="${_SWARM_ANCHOR_MARKER_PREFIX} ${_new_json} -->"
 
   # Replace existing marker or append it — Python handles special chars safely.
+  # Use lambda in re.sub to prevent backslash expansion in the replacement string
+  # (e.g. an anchor value containing '\1' would otherwise be interpreted as a
+  # group reference and corrupt the body).
   _new_body="$(printf '%s' "$_body" | python3 -c '
 import sys, re
 body = sys.stdin.read()
 marker = sys.argv[1]
 pattern = r"<!-- swarm:thread-anchors \{[^}]*\} -->"
 if re.search(pattern, body):
-    result = re.sub(pattern, marker, body, count=1)
+    result = re.sub(pattern, lambda m: marker, body, count=1)
 else:
     sep = "\n\n" if body.strip() else ""
     result = body + sep + marker
@@ -155,6 +169,17 @@ sys.stdout.write(result)
     echo "anchor: WARNING: body update computation failed — skipping anchor write" >&2
     return 0
   }
+
+  # Invariant check: strip both the old and new markers, then verify the non-marker
+  # content is identical.  If it differs, something went wrong in the merge and
+  # we must refuse to PATCH to avoid corrupting the issue body.
+  _strip_marker='import sys, re; body=sys.stdin.read(); print(re.sub(r"<!-- swarm:thread-anchors \{[^}]*\} -->", "", body).strip())'
+  _body_clean="$(printf '%s' "$_body" | python3 -c "$_strip_marker" 2>/dev/null)" || _body_clean=""
+  _new_body_clean="$(printf '%s' "$_new_body" | python3 -c "$_strip_marker" 2>/dev/null)" || _new_body_clean=""
+  if [ "$_body_clean" != "$_new_body_clean" ]; then
+    echo "anchor: WARNING: invariant check failed — non-marker content changed; refusing PATCH to prevent data loss" >&2
+    return 0
+  fi
 
   # Build the JSON payload for the PATCH request via a temp file (safe for
   # multiline bodies and bodies containing quotes or backslashes).

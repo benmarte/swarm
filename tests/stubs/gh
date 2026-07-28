@@ -120,7 +120,13 @@ if [ "${1:-}" = "api" ]; then
 
   # GET /repos/.../issues/<N> (single issue — for anchor state reads)
   if [ "$method" = "GET" ] && printf '%s' "$path" | grep -qE '/issues/[0-9]+$'; then
-    issue_json="${GH_STUB_ISSUE_JSON:-{\"number\":1,\"title\":\"test\",\"body\":\"\",\"labels\":[],\"comments\":[]}}"
+    # GH_STUB_ISSUE_GET_FAIL=1 simulates a transient API failure (rate-limit, network)
+    if [ -n "${GH_STUB_ISSUE_GET_FAIL:-}" ]; then
+      printf '{"message":"API rate limit exceeded"}\n' >&2
+      exit 1
+    fi
+    _default_issue_json='{"number":1,"title":"test","body":"","labels":[],"comments":[]}'
+    issue_json="${GH_STUB_ISSUE_JSON:-$_default_issue_json}"
     if [ -n "$jq_expr" ]; then
       printf '%s' "$issue_json" | jq -r "$jq_expr"
     else

@@ -1757,37 +1757,37 @@ BUZZ_ANCHOR_ID="aaaa000000000000000000000000000000000000000000000000000000000001
 # ---------------------------------------------------------------------------
 
 @test "anchor_state: swarm_anchor_set merges new key with existing anchors without wiping other sinks (AC5)" {
-  _tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$_tmpdir"' EXIT
-
-  export GH_STUB_LOG="$_tmpdir/gh.log"
-  export GH_STUB_ISSUE_BODY_LOG="$_tmpdir/body.log"
+  # Use plain mktemp files (no tmpdir, no trap) to avoid bats silent-drop anomaly.
+  _body_log="$(mktemp)"
+  export GH_STUB_ISSUE_BODY_LOG="$_body_log"
   # Simulate existing body with slack anchor already stored
   export GH_STUB_ISSUE_JSON='{"number":2,"title":"test","body":"issue body\n\n<!-- swarm:thread-anchors {\"slack\":\"1738000000.000001\"} -->","labels":[],"comments":[]}'
 
   # Source the anchor helper and call swarm_anchor_set for discord
   run bash -c "
+    export PATH=\"$STUBS_DIR:\$PATH\"
     . \"$REPO_ROOT/actions/notify/anchor_state.sh\"
     swarm_anchor_set \"benmarte/swarm\" \"2\" \"discord\" \"222222222222222222\"
   "
   [ "$status" -eq 0 ]
 
   # The body written back must contain BOTH the slack and discord anchors
-  [ -f "$_tmpdir/body.log" ]
-  _written_body="$(cat "$_tmpdir/body.log")"
+  [ -s "$_body_log" ]
+  _written_body="$(cat "$_body_log")"
   # Must contain slack key (not wiped by discord write)
   printf '%s' "$_written_body" | python3 -c "
 import sys, re, json
 data = json.loads(sys.stdin.read())
 body = data.get('body', '')
 m = re.search(r'<!-- swarm:thread-anchors (\{[^}]*\}) -->', body)
-assert m, 'anchor marker not found'
+assert m, 'anchor marker not found in body: ' + repr(body)
 anchors = json.loads(m.group(1))
 assert 'slack' in anchors, 'slack key was wiped'
 assert 'discord' in anchors, 'discord key not added'
 assert anchors['discord'] == '222222222222222222', 'wrong discord value'
 "
-  unset GH_STUB_ISSUE_JSON GH_STUB_LOG GH_STUB_ISSUE_BODY_LOG
+  rm -f "$_body_log"
+  unset GH_STUB_ISSUE_JSON GH_STUB_ISSUE_BODY_LOG
 }
 
 # ---------------------------------------------------------------------------
@@ -1802,10 +1802,8 @@ assert anchors['discord'] == '222222222222222222', 'wrong discord value'
   export SLACK_CHANNEL="C0TEST1234"
   export CURL_STUB_RESPONSE='{"ok":true,"ts":"1738000000.000001"}'
 
-  _tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$_tmpdir"' EXIT
-  export GH_STUB_LOG="$_tmpdir/gh.log"
-  export GH_STUB_ISSUE_BODY_LOG="$_tmpdir/body.log"
+  # Use plain mktemp files (no tmpdir, no trap) to avoid bats silent-drop anomaly.
+  export GH_STUB_ISSUE_BODY_LOG="$(mktemp)"
   # Simulate issue body with existing slack anchor
   export GH_STUB_ISSUE_JSON='{"number":2,"title":"test","body":"<!-- swarm:thread-anchors {\"slack\":\"1738000000.000001\"} -->","labels":[],"comments":[]}'
 
@@ -1815,7 +1813,44 @@ assert anchors['discord'] == '222222222222222222', 'wrong discord value'
   # Slack payload must include the thread_ts from the stored anchor
   body="$(cat "$CURL_BODY_LOG")"
   echo "$body" | jq -e '.thread_ts == "1738000000.000001"' > /dev/null
-  unset GH_STUB_ISSUE_JSON GH_STUB_LOG GH_STUB_ISSUE_BODY_LOG
+  rm -f "$GH_STUB_ISSUE_BODY_LOG"
+  unset GH_STUB_ISSUE_JSON GH_STUB_ISSUE_BODY_LOG
+}
+
+# ---------------------------------------------------------------------------
+# Bug regression: failed gh GET must not silently produce a PATCH that destroys
+# the issue body.  This test FAILS on the pre-fix code (|| true swallows gh
+# exit code → empty body → PATCH with only the marker → user content wiped).
+# ---------------------------------------------------------------------------
+
+@test "anchor_state: failed gh GET does not PATCH the issue body (data-loss regression)" {
+  # Uses a plain mktemp file (no tmpdir, no trap) to capture any PATCH body.
+  # GH_STUB_ISSUE_BODY_LOG is written by the gh stub's PATCH handler only when
+  # a PATCH is actually performed.  On the pre-fix code, _swarm_anchor_fetch_body
+  # has '|| true' which swallows the GET failure; swarm_anchor_set then computes
+  # a marker-only new body and PATCHes, destroying the real issue body.
+  _body_log="$(mktemp)"
+  export GH_STUB_ISSUE_BODY_LOG="$_body_log"
+  # Force every gh GET on a single issue to fail (simulates rate-limit / network blip)
+  export GH_STUB_ISSUE_GET_FAIL=1
+
+  run bash -c "
+    export PATH=\"$STUBS_DIR:\$PATH\"
+    . \"$REPO_ROOT/actions/notify/anchor_state.sh\"
+    swarm_anchor_set \"benmarte/swarm\" \"2\" \"slack\" \"1738000000.000001\"
+  "
+  # Function must return 0 (fail soft — never abort the pipeline)
+  [ "$status" -eq 0 ]
+
+  # CRITICAL: PATCH must NOT have been called — body log must remain empty.
+  # On the buggy code the gh stub writes the marker-only body here → fails.
+  [ ! -s "$_body_log" ]
+
+  # Output must warn about the read failure (not silently drop)
+  [[ "$output" == *"WARNING"* ]] || [[ "$output" == *"failed"* ]] || [[ "$output" == *"read"* ]]
+
+  rm -f "$_body_log"
+  unset GH_STUB_ISSUE_GET_FAIL GH_STUB_ISSUE_BODY_LOG
 }
 
 @test "notify.sh threading: first post stores anchor in issue body via gh api" {
