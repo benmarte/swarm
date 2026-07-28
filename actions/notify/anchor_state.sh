@@ -18,8 +18,15 @@
 #   caller's own sink key (leaves all other sink keys untouched), then PATCHes.
 #   Worst case in a race: at most one stray duplicate root message per sink if
 #   all concurrent stages read an empty anchor before any write completes.
-#   A lost-update that wipes another sink's anchor is prevented because each
-#   write re-reads at write time and only modifies its own key.
+#
+#   This NARROWS the lost-update window; it does not close it. Read-merge-write
+#   is not atomic, and GitHub issues expose no ETag/If-Match, so two stages that
+#   both read before either PATCHes will have the later write win — dropping the
+#   earlier stage's key. That costs one extra root message on the next
+#   notification for the dropped sink; it cannot corrupt or lose user content,
+#   which the pre-PATCH invariant check guards separately.
+#
+#   Do not describe this as preventing lost updates. It bounds their cost.
 #
 # All functions fail soft (log a WARNING, return 0) on any API error.
 # Anchor values and caller inputs are allowlist-validated before any gh call.
