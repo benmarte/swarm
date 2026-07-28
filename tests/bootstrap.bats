@@ -409,3 +409,69 @@ teardown() {
   [[ "$output" != *"sk-ant-fake-anthropic-key"* ]]
   [[ "$output" != *"fake-llm-api-key"* ]]
 }
+
+# ---------------------------------------------------------------------------
+# Shipped config template must conform to the shipped schema (issue #75)
+#
+# The template and the schema live in different files and are edited by
+# different changes, with nothing tying them together. They drifted: the
+# template's `notify:` block has every key commented out, which YAML parses as
+# null, while the schema demanded an object — so an adopter who followed the
+# documented onboarding and changed nothing hit a hard validation failure on
+# every pipeline stage. These tests are the tie.
+# ---------------------------------------------------------------------------
+
+@test "config template: shipped swarm.config.yml validates against config.schema.json" {
+  run ajv validate -s "$REPO_ROOT/schemas/config.schema.json" -d "$REPO_ROOT/swarm.config.yml"
+  [ "$status" -eq 0 ]
+}
+
+@test "config template: bootstrap-generated config validates against config.schema.json" {
+  # Extract the heredoc bootstrap writes, rather than trusting that the repo
+  # root copy and the generated one stayed identical.
+  _gd="$(mktemp -d)"; generated="$_gd/generated.yml"
+  python3 - "$REPO_ROOT/scripts/bootstrap.sh" > "$generated" <<'PYEOF'
+import re, sys
+src = open(sys.argv[1]).read()
+m = re.search(r"cat\s*>\s*[\"']?\$?\{?[A-Za-z_]*CONFIG[A-Za-z_]*\}?[\"']?\s*<<\s*'?([A-Z_]+)'?\n(.*?)\n\1\n",
+              src, re.DOTALL)
+if not m:
+    m = re.search(r"<<\s*'([A-Z_]+)'\n(notify:.*?)\n\1\n", src, re.DOTALL)
+if not m:
+    sys.exit("could not locate the generated config heredoc in bootstrap.sh")
+sys.stdout.write(m.group(2))
+PYEOF
+  run ajv validate -s "$REPO_ROOT/schemas/config.schema.json" -d "$generated"
+  rm -rf "$_gd"
+  [ "$status" -eq 0 ]
+}
+
+@test "config template: uncommenting a sink keeps the config valid" {
+  # The template instructs adopters to uncomment sinks. That edit must produce
+  # valid YAML and a valid config — a `notify: {}` placeholder would satisfy
+  # the schema while making this exact edit a YAML syntax error.
+  _d="$(mktemp -d)"; uncommented="$_d/uncommented.yml"
+  sed 's/^  # slack: true/  slack: true/' "$REPO_ROOT/swarm.config.yml" > "$uncommented"
+
+  run python3 -c "import yaml,sys; yaml.safe_load(open(sys.argv[1]))" "$uncommented"
+  [ "$status" -eq 0 ]
+
+  run ajv validate -s "$REPO_ROOT/schemas/config.schema.json" -d "$uncommented"
+  rm -rf "$_d"
+  [ "$status" -eq 0 ]
+}
+
+@test "config template: every optional top-level object tolerates being commented out" {
+  # A user may legitimately comment out any optional section. Each must accept
+  # null, or that user gets a hard schema failure on every stage.
+  for key in notify adapters develop qa runner sweeper comments; do
+    _cd="$(mktemp -d)"; cfg="$_cd/c.yml"
+    printf '%s:\n  # everything commented out\n' "$key" > "$cfg"
+    run ajv validate -s "$REPO_ROOT/schemas/config.schema.json" -d "$cfg"
+    rm -rf "$_cd"
+    [ "$status" -eq 0 ] || {
+      echo "# key '$key' rejects null: $output" >&3
+      false
+    }
+  done
+}
