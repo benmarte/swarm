@@ -1,11 +1,14 @@
 # pr-gates.yml — swarm PR gate reusable workflow (workflow_call)
 #
-# Runs reviewer and security agents in parallel on a swarm PR.
+# Runs QA gate first, then reviewer and security agents in parallel, then merge.
 #
-# QA note: pr-gates does NOT run a swarm QA agent. QA = consumer-declared
-# required checks. Consumers declare which CI checks gate merge via branch
-# protection rules; the swarm pipeline does not re-run the consumer's test
-# suite. A dedicated swarm QA agent is planned for #10.
+# QA gate: verifies consumer-declared required checks pass on the PR head SHA
+# before reviewer and security run. Required checks are read from the
+# qa-required-checks workflow input (takes precedence) or qa.required_checks
+# in swarm.config.yml (fallback). When neither is set, the QA gate is skipped
+# and today's behaviour is preserved. A check that is absent, failing, or
+# still pending after the polling window is treated as failed — the gate never
+# passes because a check has not yet reported.
 #
 # SWARM_TOKEN requirement: consumers MUST provision a SWARM_TOKEN secret
 # pointing to a fine-grained PAT with pull-requests:write scope for a
@@ -32,6 +35,7 @@
 #                   Required for reviewer-post job when dry-run is false.
 #
 # Permissions per job:
+#   qa job          : contents: read, pull-requests: write, issues: write (poll check-runs + apply label)
 #   reviewer job    : contents: read, pull-requests: read (checkout + gh pr diff)
 #   reviewer-post   : contents: read, pull-requests: write (post PR review via SWARM_TOKEN)
 #   security job    : contents: read, pull-requests: read (checkout + gh pr diff)
@@ -83,8 +87,10 @@ on:
         default: ""
       qa-required-checks:
         description: >
-          Comma-separated check names declared by the consumer as required for merge.
-          Reserved — full wiring pending #10; currently unused.
+          Comma-separated check names that must pass on the PR head SHA before
+          reviewer and security run. Overrides qa.required_checks from
+          swarm.config.yml. When both are empty, the QA gate is skipped and
+          pr-gates behaves as before this input was wired (AC4).
         required: false
         type: string
         default: ""
@@ -148,9 +154,257 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ── Reviewer agent (parallel with security) ───────────────────────────────
+  # ── QA gate: wait for required checks before any agent runs ───────────────
+  #
+  # Polls the GitHub check-runs API for each consumer-declared required check.
+  # A check that is absent, still in_progress, or completed with a non-green
+  # conclusion fails the gate.  Timeout (20-minute polling window) also fails
+  # the gate — the gate never passes by absence.
+  #
+  # reviewer and security carry needs: [qa], so they cannot start until this
+  # job succeeds.  merge carries needs: [reviewer-post, security-post, qa];
+  # the swarm-approval environment gate is therefore unreachable when QA fails.
+  qa:
+    name: QA — required checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    outputs:
+      result: ${{ steps.wait.outputs.result }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Checkout engine
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ inputs.engine-repo }}
+          ref: ${{ inputs.engine-ref }}
+          path: .swarm-engine
+          persist-credentials: false
+
+      - name: Load and validate config
+        id: config
+        uses: ./.swarm-engine/actions/load-config
+        with:
+          config-file: swarm.config.yml
+
+      - name: Resolve required checks
+        id: resolve
+        env:
+          INPUT_CHECKS: ${{ inputs.qa-required-checks }}
+          CONFIG_CHECKS: ${{ steps.config.outputs.qa-required-checks }}
+        run: |
+          # Workflow input wins over config; both empty means no required checks.
+          checks="${INPUT_CHECKS:-}"
+          if [ -z "$checks" ]; then
+            checks="${CONFIG_CHECKS:-}"
+          fi
+          delim="swarm_$(openssl rand -hex 16)"
+          {
+            printf 'checks<<%s\n' "$delim"
+            printf '%s\n' "$checks"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Wait for required checks
+        id: wait
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          REQUIRED_CHECKS: ${{ steps.resolve.outputs.checks }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          if [ "${DRY_RUN}" = "true" ]; then
+            printf 'dry-run: qa — would wait for required checks: %s\n' "${REQUIRED_CHECKS:-none}"
+            delim="swarm_$(openssl rand -hex 16)"
+            {
+              printf 'result<<%s\n' "$delim"
+              printf 'pass\n'
+              printf '%s\n' "$delim"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -z "${REQUIRED_CHECKS:-}" ]; then
+            printf 'qa: no required checks configured — QA gate skipped\n'
+            delim="swarm_$(openssl rand -hex 16)"
+            {
+              printf 'result<<%s\n' "$delim"
+              printf 'pass\n'
+              printf '%s\n' "$delim"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Validate PR_NUMBER before using in gh API call (allowlist: digits only)
+          if ! printf '%s' "${PR_NUMBER}" | grep -qE '^[0-9]+$'; then
+            printf 'ERROR: qa: invalid PR_NUMBER: %s\n' "${PR_NUMBER}" >&2
+            exit 1
+          fi
+
+          head_sha="$(gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
+            --jq '.head.sha')"
+
+          # Validate head SHA (allowlist: 40 hex chars)
+          if ! printf '%s' "${head_sha}" | grep -qE '^[0-9a-f]{40}$'; then
+            printf 'ERROR: qa: unexpected head SHA format: %s\n' "${head_sha}" >&2
+            exit 1
+          fi
+
+          printf 'qa: polling required checks for PR #%s head SHA %s\n' \
+            "${PR_NUMBER}" "${head_sha}"
+          printf 'qa: required checks: %s\n' "${REQUIRED_CHECKS}"
+
+          # Poll up to 20 minutes (40 attempts × 30 s).
+          # Timeout is a FAILURE — a check that has not reported is not passing.
+          max_attempts=40
+          attempt=0
+          qa_result="fail"
+
+          while [ "$attempt" -lt "$max_attempts" ]; do
+            attempt=$((attempt + 1))
+
+            check_runs_json="$(gh api \
+              "/repos/${GITHUB_REPOSITORY}/commits/${head_sha}/check-runs" \
+              --jq '.check_runs')"
+
+            all_green=true
+            any_red=false
+            pending_list=""
+            failed_list=""
+
+            # Iterate comma-separated check names.
+            # Use a temp file so variable assignments are visible outside the loop.
+            tmp_checks="$(mktemp)"
+            printf '%s' "${REQUIRED_CHECKS}" | tr ',' '\n' > "$tmp_checks"
+
+            while IFS= read -r check_name; do
+              # Trim surrounding whitespace
+              check_name="$(printf '%s' "$check_name" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+              [ -z "$check_name" ] && continue
+
+              # Query this check by exact name match.
+              # 'not_found'   — no run with this name exists yet.
+              # 'pending'     — run exists but status != completed.
+              # Otherwise     — the conclusion value (success, failure, etc.).
+              check_status="$(printf '%s' "$check_runs_json" | jq -r \
+                --arg name "$check_name" \
+                '[.[] | select(.name == $name)] |
+                 if length == 0 then "not_found"
+                 elif .[0].status != "completed" then "pending"
+                 else .[0].conclusion
+                 end')"
+
+              case "$check_status" in
+                success|skipped|neutral)
+                  printf 'qa: check "%s" → %s\n' "$check_name" "$check_status"
+                  ;;
+                failure|error|cancelled|timed_out|action_required)
+                  printf 'qa: check "%s" → %s (FAILED)\n' "$check_name" "$check_status" >&2
+                  any_red=true
+                  all_green=false
+                  failed_list="${failed_list:+$failed_list, }${check_name}"
+                  ;;
+                not_found|pending)
+                  # A check that has not appeared or not yet completed is NOT
+                  # treated as passing — we keep polling until timeout.
+                  printf 'qa: check "%s" → %s (waiting)\n' "$check_name" "$check_status"
+                  all_green=false
+                  pending_list="${pending_list:+$pending_list, }${check_name}"
+                  ;;
+                *)
+                  printf 'qa: check "%s" → unknown status "%s" (waiting)\n' \
+                    "$check_name" "$check_status"
+                  all_green=false
+                  pending_list="${pending_list:+$pending_list, }${check_name}"
+                  ;;
+              esac
+            done < "$tmp_checks"
+            rm -f "$tmp_checks"
+
+            if [ "$any_red" = "true" ]; then
+              printf 'qa: required checks FAILED: %s\n' "$failed_list" >&2
+              qa_result="fail"
+              break
+            fi
+
+            if [ "$all_green" = "true" ]; then
+              printf 'qa: all required checks passed\n'
+              qa_result="pass"
+              break
+            fi
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              printf 'qa: still waiting for: %s (attempt %s/%s) — sleeping 30s\n' \
+                "$pending_list" "$attempt" "$max_attempts"
+              sleep 30
+            fi
+          done
+
+          if [ "$attempt" -ge "$max_attempts" ] && [ "$qa_result" = "fail" ]; then
+            printf 'ERROR: qa: timeout — required checks did not complete within %s minutes: %s\n' \
+              "$((max_attempts * 30 / 60))" "${pending_list:-unknown}" >&2
+          fi
+
+          delim="swarm_$(openssl rand -hex 16)"
+          {
+            printf 'result<<%s\n' "$delim"
+            printf '%s\n' "$qa_result"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Apply qa:pass label
+        if: steps.wait.outputs.result == 'pass' && inputs.dry-run == false
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+        run: |
+          if ! printf '%s' "${PR_NUMBER}" | grep -qE '^[0-9]+$'; then
+            printf 'ERROR: invalid PR_NUMBER: %s\n' "${PR_NUMBER}" >&2
+            exit 1
+          fi
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels" \
+            --method POST \
+            -f "labels[]=qa:pass"
+
+      - name: Apply qa:fail label
+        if: steps.wait.outputs.result == 'fail' && inputs.dry-run == false
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+        run: |
+          if ! printf '%s' "${PR_NUMBER}" | grep -qE '^[0-9]+$'; then
+            printf 'ERROR: invalid PR_NUMBER: %s\n' "${PR_NUMBER}" >&2
+            exit 1
+          fi
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels" \
+            --method POST \
+            -f "labels[]=qa:fail"
+
+      - name: Dry-run log (qa)
+        if: inputs.dry-run == true
+        env:
+          REQUIRED_CHECKS: ${{ steps.resolve.outputs.checks }}
+        run: |
+          printf 'dry-run: qa — would apply qa:pass or qa:fail label for checks: %s\n' \
+            "${REQUIRED_CHECKS:-none}"
+
+      - name: Fail on qa:fail
+        if: steps.wait.outputs.result == 'fail'
+        run: |
+          printf 'ERROR: qa gate failed — required checks did not all pass; '
+          printf 'reviewer and security will not run until checks are green\n' >&2
+          exit 1
+
+  # ── Reviewer agent (parallel with security, after qa) ─────────────────────
   reviewer:
     name: Reviewer agent
+    needs: [qa]
     runs-on: ${{ inputs.runner-label }}
     timeout-minutes: 20
     permissions:
@@ -402,9 +656,10 @@ jobs:
           printf 'ERROR: unexpected reviewer verdict: %s\n' "$VERDICT" >&2
           exit 1
 
-  # ── Security agent (parallel with reviewer) ───────────────────────────────
+  # ── Security agent (parallel with reviewer, after qa) ────────────────────
   security:
     name: Security agent
+    needs: [qa]
     runs-on: ${{ inputs.runner-label }}
     timeout-minutes: 20
     permissions:
@@ -518,7 +773,7 @@ jobs:
   merge:
     name: Merge (swarm-approval gate)
     runs-on: ubuntu-latest
-    needs: [reviewer-post, security-post]
+    needs: [reviewer-post, security-post, qa]
     timeout-minutes: 10
     environment: swarm-approval
     permissions:

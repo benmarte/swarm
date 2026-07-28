@@ -836,3 +836,268 @@ sys.exit(0)
 PYEOF
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# QA job: existence, ordering, labels, polling — issue #72
+# Tests below FAIL on the pre-fix codebase and PASS after the fix.
+# ---------------------------------------------------------------------------
+
+@test "pr-gates.yml: qa job exists (issue #72)" {
+  # A qa job must exist as a top-level jobs entry.
+  run grep -q "^  qa:" "$PR_GATES"
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: qa job has permissions and timeout-minutes (issue #72)" {
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+lines = content.split("\n")
+in_qa = False
+found_timeout = False
+found_perms = False
+
+for i, line in enumerate(lines):
+    if line == "  qa:":
+        in_qa = True
+        continue
+    if in_qa:
+        # Another 2-space-indented job key ends the qa block
+        if re.match(r'^  [a-z]', line) and not line.startswith("   "):
+            break
+        if "timeout-minutes:" in line:
+            found_timeout = True
+        if "permissions:" in line:
+            found_perms = True
+
+if not found_timeout:
+    print("ERROR: qa job missing timeout-minutes:")
+    sys.exit(1)
+if not found_perms:
+    print("ERROR: qa job missing permissions:")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: reviewer job needs qa (AC3 — issue #72)" {
+  # reviewer must declare needs: [qa] (or needs: qa) so it cannot run until QA passes.
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+lines = content.split("\n")
+in_reviewer = False
+found_needs_qa = False
+
+for i, line in enumerate(lines):
+    if line == "  reviewer:":
+        in_reviewer = True
+        continue
+    if in_reviewer:
+        if re.match(r'^  [a-z]', line) and line != "  reviewer:":
+            break
+        if "needs:" in line:
+            # Check this line and next few for 'qa'
+            window = "\n".join(lines[i:i+6])
+            if re.search(r'\bqa\b', window):
+                found_needs_qa = True
+                break
+
+if not found_needs_qa:
+    print("ERROR: reviewer job does not have needs: [qa] — reviewer must wait for QA")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: security job needs qa (AC3 — issue #72)" {
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+lines = content.split("\n")
+in_security = False
+found_needs_qa = False
+
+for i, line in enumerate(lines):
+    if line == "  security:":
+        in_security = True
+        continue
+    if in_security:
+        if re.match(r'^  [a-z]', line) and line != "  security:":
+            break
+        if "needs:" in line:
+            window = "\n".join(lines[i:i+6])
+            if re.search(r'\bqa\b', window):
+                found_needs_qa = True
+                break
+
+if not found_needs_qa:
+    print("ERROR: security job does not have needs: [qa] — security must wait for QA")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: merge job needs qa (AC1 — issue #72)" {
+  # merge must list qa in its needs so the swarm-approval gate is never reached
+  # when QA fails (transitive via reviewer-post/security-post, plus explicit).
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+lines = content.split("\n")
+in_merge = False
+merge_needs = ""
+
+for i, line in enumerate(lines):
+    if line == "  merge:":
+        in_merge = True
+        continue
+    if in_merge:
+        if re.match(r'^  [a-z]', line) and line != "  merge:":
+            break
+        if "needs:" in line:
+            window = "\n".join(lines[i:i+8])
+            merge_needs = window
+            break
+
+if not re.search(r'\bqa\b', merge_needs):
+    print("ERROR: merge job does not list qa in its needs chain — "
+          "human approval gate must not be reached when QA fails")
+    print(f"needs block found: {merge_needs[:300]!r}")
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: qa job applies qa:pass label on check success (AC2 — issue #72)" {
+  run grep -q "qa:pass" "$PR_GATES"
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: qa job applies qa:fail label on check failure (AC2 — issue #72)" {
+  run grep -q "qa:fail" "$PR_GATES"
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: qa job polls with timeout — absent check is not treated as pass (issue #72)" {
+  # A qa job that passes because a check had not reported yet is worse than the bug.
+  # Verify that: (a) polling/retry logic exists and (b) 'not_found' is treated as non-pass.
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# Polling loop must exist (max_attempts or sleep pattern)
+if "max_attempts" not in content and "sleep 30" not in content:
+    print("ERROR: qa job must implement a polling loop with timeout "
+          "(expected 'max_attempts' and 'sleep 30')")
+    sys.exit(1)
+
+# A missing/pending check must NOT be treated as passing —
+# the script must explicitly handle the 'not_found' case as non-green.
+if "not_found" not in content:
+    print("ERROR: qa job must explicitly handle 'not_found' check status "
+          "(a required check that never appears must NOT be treated as passing)")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: qa-required-checks input no longer marked Reserved (issue #72)" {
+  # The old description said 'Reserved — full wiring pending #10; currently unused.'
+  # After this fix, the input is live and must not carry Reserved language.
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+lines = content.split("\n")
+in_qa_input = False
+
+for i, line in enumerate(lines):
+    if "qa-required-checks:" in line:
+        in_qa_input = True
+        continue
+    if in_qa_input:
+        # Description block spans the next few indented lines
+        if not line.strip() or (line.strip() and not line.startswith("        ")):
+            break
+        if re.search(r'Reserved.*pending.*#10|currently unused', line):
+            print(f"ERROR: qa-required-checks input still carries Reserved language "
+                  f"on line {i+1}: {line!r}")
+            sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: qa job exits cleanly when no required_checks configured (AC4 — issue #72)" {
+  # When REQUIRED_CHECKS is empty, the qa job must skip polling and pass through.
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# There must be a code path that handles empty REQUIRED_CHECKS gracefully.
+# Look for the pattern: if empty checks → skip QA gate.
+if "no required checks" not in content and "REQUIRED_CHECKS" not in content:
+    print("ERROR: qa job must handle missing/empty required_checks gracefully")
+    sys.exit(1)
+
+# The word 'REQUIRED_CHECKS' must appear in the qa job's run block
+if "REQUIRED_CHECKS" not in content:
+    print("ERROR: REQUIRED_CHECKS variable not referenced in qa job")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-gates.yml: qa job uses config fallback for required_checks (AC2 — issue #72)" {
+  # The qa job must honour qa.required_checks from swarm.config.yml via load-config,
+  # using the workflow input as override when set.
+  run python3 - "$PR_GATES" <<'PYEOF'
+import sys
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+# Must reference the load-config step output for qa-required-checks
+if "qa-required-checks" not in content:
+    print("ERROR: qa job must reference 'qa-required-checks' "
+          "(from load-config or input) to consume the config value")
+    sys.exit(1)
+
+# Input wins over config — both must be referenced
+if "CONFIG_CHECKS" not in content and "steps.config.outputs.qa-required-checks" not in content:
+    print("ERROR: qa job must reference config output for qa-required-checks "
+          "(expected CONFIG_CHECKS env var or steps.config.outputs.qa-required-checks)")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}

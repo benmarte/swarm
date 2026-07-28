@@ -132,6 +132,10 @@ sweeper_schedule="$(jq -r '.sweeper.schedule | if . == null then "" else tostrin
 llm_base_url="$(jq -r '.SWARM_LLM_BASE_URL | if . == null then "" else tostring end' "$_config_json")"
 # comments.enabled: absent → default "true"; explicit false → "false"
 comments_enabled="$(jq -r '.comments.enabled | if . == null then "true" else tostring end' "$_config_json")"
+# qa.required_checks: array → comma-separated string; absent → empty
+qa_required_checks="$(jq -r \
+  'if .qa.required_checks == null then "" else .qa.required_checks | join(",") end' \
+  "$_config_json")"
 
 # ── Compute enabled-sinks from notify booleans + channel/buzz_channel presence ──
 # Build a comma-separated list of sinks whose config is live:
@@ -163,8 +167,9 @@ export_output "enabled-sinks"         "$enabled_sinks"
 export_output "runner-label"       "$runner_label"
 export_output "develop-adapter"    "$develop_adapter"
 export_output "sweeper-schedule"   "$sweeper_schedule"
-export_output "swarm-llm-base-url" "$llm_base_url"
-export_output "comments-enabled"   "$comments_enabled"
+export_output "swarm-llm-base-url"    "$llm_base_url"
+export_output "comments-enabled"      "$comments_enabled"
+export_output "qa-required-checks"    "$qa_required_checks"
 
 echo "load-config: exported outputs:"
 echo "  notify-slack=$notify_slack"
@@ -179,4 +184,5 @@ echo "  develop-adapter=$develop_adapter"
 echo "  sweeper-schedule=$sweeper_schedule"
 echo "  swarm-llm-base-url=$llm_base_url"
 echo "  comments-enabled=$comments_enabled"
+echo "  qa-required-checks=$qa_required_checks"
 echo "load-config: OK"
