@@ -128,6 +128,7 @@ jobs:
     outputs:
       verdict: ${{ steps.read-outcome.outputs.verdict }}
       spec-body: ${{ steps.read-outcome.outputs.spec-body }}
+      summary: ${{ steps.read-outcome.outputs.summary }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       SWARM_LLM_MODEL: ${{ inputs.model }}
@@ -193,6 +194,8 @@ jobs:
             jq -r '.evidence.spec_body // ""' outcome.json
             printf '\n%s\n' "$body_delim"
           } >> "$GITHUB_OUTPUT"
+          summary="$(jq -r '.evidence.summary // (.verdict // "spec produced")' outcome.json | tr -d '\n\r')"
+          printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
 
   post-and-advance:
     name: Post spec and advance
@@ -228,6 +231,22 @@ jobs:
         uses: ./.swarm-engine/actions/load-config
         with:
           config-file: swarm.config.yml
+
+      # ── role event: pm spec findings to configured notify sinks ─────────────
+      - name: Emit pm role event
+        if: inputs.dry-run == false
+        env:
+          ROLE: pm
+          VERDICT: ${{ needs.agent.outputs.verdict }}
+          SUMMARY: ${{ needs.agent.outputs.summary }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          ENABLED_SINKS: ${{ steps.config.outputs.enabled-sinks }}
+          BUZZ_CHANNEL: ${{ steps.config.outputs.notify-buzz-channel }}
+          SLACK_CHANNEL: ${{ steps.config.outputs.notify-slack-channel }}
+          DISCORD_CHANNEL: ${{ steps.config.outputs.notify-discord-channel }}
+          URL: https://github.com/${{ github.repository }}/issues/${{ inputs.issue }}
+        run: |
+          bash ".swarm-engine/scripts/emit-role-event.sh"
 
       # ── spec: post comment + transition ───────────────────────────────────
       - name: Post spec as issue comment

@@ -259,6 +259,23 @@ jobs:
         run: |
           printf 'dry-run: would post validator findings comment on issue #%s (verdict=%s)\n' "$ISSUE_NUMBER" "$VERDICT"
 
+      # ── role event: validator findings to configured notify sinks ───────────
+      - name: Emit validator role event
+        if: inputs.dry-run == false
+        env:
+          ROLE: validator
+          VERDICT: ${{ needs.agent.outputs.verdict }}
+          SUMMARY: ${{ needs.agent.outputs.summary }}
+          DETAILS: ${{ needs.agent.outputs.details }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          ENABLED_SINKS: ${{ steps.config.outputs.enabled-sinks }}
+          BUZZ_CHANNEL: ${{ steps.config.outputs.notify-buzz-channel }}
+          SLACK_CHANNEL: ${{ steps.config.outputs.notify-slack-channel }}
+          DISCORD_CHANNEL: ${{ steps.config.outputs.notify-discord-channel }}
+          URL: https://github.com/${{ github.repository }}/issues/${{ inputs.issue }}
+        run: |
+          bash ".swarm-engine/scripts/emit-role-event.sh"
+
       # ── confirmed: advance to swarm:spec ──────────────────────────────────
       - name: Transition confirmed → swarm:spec
         if: needs.agent.outputs.verdict == 'confirmed' && inputs.dry-run == false

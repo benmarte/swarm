@@ -1,0 +1,18 @@
+{
+  "event": "reviewer",
+  "repo": "benmarte/swarm",
+  "issue": 7,
+  "pr": 14,
+  "stage_from": "swarm:qa",
+  "stage_to": "swarm:qa",
+  "actor": "swarm-agent",
+  "url": "https://github.com/benmarte/swarm/pull/14",
+  "summary": "Code quality is high; all acceptance criteria met.",
+  "role": "reviewer",
+  "verdict": "approve",
+  "evidence": [
+    "all acceptance criteria met",
+    "tests pass and coverage is adequate",
+    "no security concerns flagged"
+  ]
+}

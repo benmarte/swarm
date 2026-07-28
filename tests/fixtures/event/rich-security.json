@@ -1,0 +1,18 @@
+{
+  "event": "security",
+  "repo": "benmarte/swarm",
+  "issue": 7,
+  "pr": 14,
+  "stage_from": "swarm:qa",
+  "stage_to": "swarm:qa",
+  "actor": "swarm-agent",
+  "url": "https://github.com/benmarte/swarm/pull/14",
+  "summary": "No critical security issues found; diff is clean.",
+  "role": "security",
+  "verdict": "pass",
+  "evidence": [
+    "no secrets or credentials in diff",
+    "dependency versions are current",
+    "no SSRF or injection vectors identified"
+  ]
+}

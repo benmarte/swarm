@@ -161,6 +161,10 @@ jobs:
       summary: ${{ steps.read-outcome.outputs.summary }}
       details: ${{ steps.read-outcome.outputs.details }}
       comments-enabled: ${{ steps.config.outputs.comments-enabled }}
+      enabled-sinks: ${{ steps.config.outputs.enabled-sinks }}
+      notify-buzz-channel: ${{ steps.config.outputs.notify-buzz-channel }}
+      notify-slack-channel: ${{ steps.config.outputs.notify-slack-channel }}
+      notify-discord-channel: ${{ steps.config.outputs.notify-discord-channel }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       SWARM_LLM_MODEL: ${{ inputs.model }}
@@ -256,6 +260,13 @@ jobs:
       pull-requests: write
     env:
       GH_TOKEN: ${{ secrets.SWARM_TOKEN }}
+      SWARM_SLACK_WEBHOOK: ${{ secrets.SWARM_SLACK_WEBHOOK }}
+      SWARM_SLACK_BOT_TOKEN: ${{ secrets.SWARM_SLACK_BOT_TOKEN }}
+      SWARM_DISCORD_WEBHOOK: ${{ secrets.SWARM_DISCORD_WEBHOOK }}
+      SWARM_DISCORD_BOT_TOKEN: ${{ secrets.SWARM_DISCORD_BOT_TOKEN }}
+      SWARM_TEAMS_WEBHOOK: ${{ secrets.SWARM_TEAMS_WEBHOOK }}
+      SWARM_BUZZ_RELAY_URL: ${{ secrets.SWARM_BUZZ_RELAY_URL }}
+      SWARM_BUZZ_PRIVATE_KEY: ${{ secrets.SWARM_BUZZ_PRIVATE_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -353,6 +364,24 @@ jobs:
               "$body"
           gh pr comment "$PR_NUMBER" --body-file "$body" --repo "$GITHUB_REPOSITORY"
 
+      # ── role event: reviewer findings to notify sinks ─────────────────────
+      - name: Emit reviewer role event
+        if: inputs.dry-run == false
+        env:
+          ROLE: reviewer
+          VERDICT: ${{ needs.reviewer.outputs.verdict }}
+          SUMMARY: ${{ needs.reviewer.outputs.summary }}
+          DETAILS: ${{ needs.reviewer.outputs.details }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          PR_NUMBER: ${{ inputs.pr }}
+          ENABLED_SINKS: ${{ needs.reviewer.outputs.enabled-sinks }}
+          BUZZ_CHANNEL: ${{ needs.reviewer.outputs.notify-buzz-channel }}
+          SLACK_CHANNEL: ${{ needs.reviewer.outputs.notify-slack-channel }}
+          DISCORD_CHANNEL: ${{ needs.reviewer.outputs.notify-discord-channel }}
+          URL: https://github.com/${{ github.repository }}/pull/${{ inputs.pr }}
+        run: |
+          bash ".swarm-engine/scripts/emit-role-event.sh"
+
       - name: Dry-run log (reviewer)
         if: inputs.dry-run == true
         env:
@@ -386,6 +415,10 @@ jobs:
       summary: ${{ steps.read-outcome.outputs.summary }}
       details: ${{ steps.read-outcome.outputs.details }}
       comments-enabled: ${{ steps.config.outputs.comments-enabled }}
+      enabled-sinks: ${{ steps.config.outputs.enabled-sinks }}
+      notify-buzz-channel: ${{ steps.config.outputs.notify-buzz-channel }}
+      notify-slack-channel: ${{ steps.config.outputs.notify-slack-channel }}
+      notify-discord-channel: ${{ steps.config.outputs.notify-discord-channel }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       SWARM_LLM_MODEL: ${{ inputs.model }}
@@ -617,6 +650,27 @@ jobs:
         run: |
           printf 'dry-run: merge — would squash-merge and delete branch for PR #%s via SWARM_TOKEN\n' "${PR_NUMBER}"
 
+      # ── role event: merged lifecycle to notify sinks ───────────────────────
+      - name: Emit merged lifecycle role event
+        if: inputs.dry-run == false
+        env:
+          ROLE: orchestrator
+          VERDICT: merged
+          SUMMARY: PR #${{ inputs.pr }} merged; all pipeline stages passed.
+          DETAILS: |-
+            - reviewer: approved
+            - security: passed
+            - merge: squash-merged
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          PR_NUMBER: ${{ inputs.pr }}
+          ENABLED_SINKS: ${{ steps.config.outputs.enabled-sinks }}
+          BUZZ_CHANNEL: ${{ steps.config.outputs.notify-buzz-channel }}
+          SLACK_CHANNEL: ${{ steps.config.outputs.notify-slack-channel }}
+          DISCORD_CHANNEL: ${{ steps.config.outputs.notify-discord-channel }}
+          URL: https://github.com/${{ github.repository }}/pull/${{ inputs.pr }}
+        run: |
+          bash ".swarm-engine/scripts/emit-role-event.sh"
+
       - name: Transition swarm:qa → swarm:docs
         if: inputs.dry-run == false
         uses: ./.swarm-engine/actions/transition
@@ -649,6 +703,13 @@ jobs:
       issues: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SWARM_SLACK_WEBHOOK: ${{ secrets.SWARM_SLACK_WEBHOOK }}
+      SWARM_SLACK_BOT_TOKEN: ${{ secrets.SWARM_SLACK_BOT_TOKEN }}
+      SWARM_DISCORD_WEBHOOK: ${{ secrets.SWARM_DISCORD_WEBHOOK }}
+      SWARM_DISCORD_BOT_TOKEN: ${{ secrets.SWARM_DISCORD_BOT_TOKEN }}
+      SWARM_TEAMS_WEBHOOK: ${{ secrets.SWARM_TEAMS_WEBHOOK }}
+      SWARM_BUZZ_RELAY_URL: ${{ secrets.SWARM_BUZZ_RELAY_URL }}
+      SWARM_BUZZ_PRIVATE_KEY: ${{ secrets.SWARM_BUZZ_PRIVATE_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -696,6 +757,24 @@ jobs:
               ".swarm-engine/templates/comments/blocked.md" \
               "$body"
           gh issue comment "$ISSUE_NUMBER" --body-file "$body" --repo "$GITHUB_REPOSITORY"
+
+      # ── role event: security findings to notify sinks ─────────────────────
+      - name: Emit security role event
+        if: inputs.dry-run == false
+        env:
+          ROLE: security
+          VERDICT: ${{ needs.security.outputs.verdict }}
+          SUMMARY: ${{ needs.security.outputs.summary }}
+          DETAILS: ${{ needs.security.outputs.details }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          PR_NUMBER: ${{ inputs.pr }}
+          ENABLED_SINKS: ${{ needs.security.outputs.enabled-sinks }}
+          BUZZ_CHANNEL: ${{ needs.security.outputs.notify-buzz-channel }}
+          SLACK_CHANNEL: ${{ needs.security.outputs.notify-slack-channel }}
+          DISCORD_CHANNEL: ${{ needs.security.outputs.notify-discord-channel }}
+          URL: https://github.com/${{ github.repository }}/pull/${{ inputs.pr }}
+        run: |
+          bash ".swarm-engine/scripts/emit-role-event.sh"
 
       - name: Post fail and exit non-zero
         if: needs.security.outputs.verdict == 'fail' && inputs.dry-run == false

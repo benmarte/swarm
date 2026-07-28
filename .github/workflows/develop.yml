@@ -305,9 +305,9 @@ jobs:
           config-file: swarm.config.yml
 
       # ── findings comment: pr-opened on issue ─────────────────────────────
-      - name: Find PR for issue (comment)
+      - name: Find PR for issue
         id: find-pr
-        if: steps.config.outputs.comments-enabled != 'false' && inputs.dry-run == false
+        if: inputs.dry-run == false
         env:
           ISSUE_NUMBER: ${{ inputs.issue }}
         run: |
@@ -352,6 +352,23 @@ jobs:
           ISSUE_NUMBER: ${{ inputs.issue }}
         run: |
           printf 'dry-run: would post pr-opened findings comment on issue #%s\n' "$ISSUE_NUMBER"
+
+      # ── role event: developer pr-opened lifecycle to notify sinks ────────────
+      - name: Emit developer pr-opened role event
+        if: inputs.dry-run == false
+        env:
+          ROLE: developer
+          VERDICT: pr-opened
+          SUMMARY: ${{ steps.find-pr.outputs.pr-title }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          PR_NUMBER: ${{ inputs.issue }}
+          ENABLED_SINKS: ${{ steps.config.outputs.enabled-sinks }}
+          BUZZ_CHANNEL: ${{ steps.config.outputs.notify-buzz-channel }}
+          SLACK_CHANNEL: ${{ steps.config.outputs.notify-slack-channel }}
+          DISCORD_CHANNEL: ${{ steps.config.outputs.notify-discord-channel }}
+          URL: ${{ steps.find-pr.outputs.pr-link }}
+        run: |
+          bash ".swarm-engine/scripts/emit-role-event.sh"
 
       - name: Transition swarm:develop → swarm:qa
         if: inputs.dry-run == false
