@@ -299,10 +299,9 @@ jobs:
               check_status="$(printf '%s' "$check_runs_json" | jq -r \
                 --arg name "$check_name" \
                 '[.[] | select(.name == $name)] |
-                 sort_by(.started_at // "") |
                  if length == 0 then "not_found"
-                 elif last.status != "completed" then "pending"
-                 else last.conclusion
+                 elif any(.[]; .status != "completed") then "pending"
+                 else sort_by(.started_at // "") | last.conclusion
                  end')"
 
               # SECURITY NOTE — only 'success' satisfies a required check.

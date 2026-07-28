@@ -1285,3 +1285,17 @@ PYEOF
     false
   }
 }
+
+@test "qa gate: an in-flight re-run makes the check pending, not the stale conclusion" {
+  # A required check succeeded, then someone queued a re-run. Deciding the gate
+  # on the older conclusion while a run is in flight is wrong: the re-run may
+  # be about to fail. Any non-completed run for the name means "wait".
+  #
+  # The earlier form (sort_by then check last.status) got this wrong, because a
+  # queued run has a null started_at, which `// ""` sorts FIRST — so `last` was
+  # the stale completed run and the gate returned its conclusion.
+  fixture='[{"name":"ci","status":"completed","conclusion":"success","started_at":"2026-07-28T10:00:00Z"},{"name":"ci","status":"queued","conclusion":null,"started_at":null}]'
+  run _qa_select "$fixture" ci
+  [ "$status" -eq 0 ]
+  [ "$output" = "pending" ]
+}
