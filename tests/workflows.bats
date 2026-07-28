@@ -1750,3 +1750,69 @@ sys.exit(0)
 PYEOF
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# develop.yml: pr-opened role event carries the real PR number (#66 regression)
+#
+# The emitted event's integer `pr` field must come from the find-pr lookup, not
+# from inputs.issue. Both are positive integers, so a mix-up passes the
+# ^[0-9]+$ guard in emit-role-event.sh and silently ships a wrong PR number to
+# every notification sink.
+# ---------------------------------------------------------------------------
+
+@test "develop.yml: find-pr exposes a pr-number output" {
+  run python3 - "$DEVELOP" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+m = re.search(r'\n      - name: Find PR for issue\n(.*?)(?=\n      - name: )', content, re.DOTALL)
+if not m:
+    print("ERROR: 'Find PR for issue' step not found in develop.yml")
+    sys.exit(1)
+step = m.group(1)
+
+if "pr-number=" not in step:
+    print("ERROR: find-pr step does not write a pr-number output")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}
+
+@test "develop.yml: pr-opened role event takes PR_NUMBER from find-pr, not inputs.issue" {
+  run python3 - "$DEVELOP" <<'PYEOF'
+import sys, re
+
+with open(sys.argv[1]) as fh:
+    content = fh.read()
+
+m = re.search(
+    r'\n      - name: Emit developer pr-opened role event\n(.*?)(?=\n      - name: )',
+    content, re.DOTALL)
+if not m:
+    print("ERROR: 'Emit developer pr-opened role event' step not found in develop.yml")
+    sys.exit(1)
+step = m.group(1)
+
+pr = re.search(r'PR_NUMBER:\s*(.+)', step)
+if not pr:
+    print("ERROR: pr-opened role event step has no PR_NUMBER env entry")
+    sys.exit(1)
+value = pr.group(1).strip()
+
+if "inputs.issue" in value:
+    print(f"ERROR: PR_NUMBER is wired to the ISSUE number: {value}")
+    print("  The event's `pr` field would carry the issue number instead of the PR number.")
+    sys.exit(1)
+
+if "steps.find-pr.outputs.pr-number" not in value:
+    print(f"ERROR: PR_NUMBER should come from steps.find-pr.outputs.pr-number, got: {value}")
+    sys.exit(1)
+
+sys.exit(0)
+PYEOF
+  [ "$status" -eq 0 ]
+}

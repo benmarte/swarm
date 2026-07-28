@@ -295,6 +295,24 @@ jobs:
           printf 'dry-run: docs verdict=%s — would post docs findings comment on issue #%s: %s\n' \
             "$VERDICT" "$ISSUE_NUMBER" "$SUMMARY"
 
+      # ── role event: docs findings to notify sinks ─────────────────────────
+      - name: Emit docs role event
+        if: inputs.dry-run == false
+        env:
+          ROLE: docs
+          VERDICT: ${{ needs.agent.outputs.verdict }}
+          SUMMARY: ${{ needs.agent.outputs.summary }}
+          DETAILS: ${{ needs.agent.outputs.details }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          PR_NUMBER: ${{ inputs.pr }}
+          ENABLED_SINKS: ${{ inputs.enabled-sinks }}
+          BUZZ_CHANNEL: ${{ inputs.buzz-channel }}
+          SLACK_CHANNEL: ${{ inputs.slack-channel }}
+          DISCORD_CHANNEL: ${{ inputs.discord-channel }}
+          URL: https://github.com/${{ github.repository }}/issues/${{ inputs.issue }}
+        run: |
+          bash ".swarm-engine/scripts/emit-role-event.sh"
+
       - name: Transition swarm:docs → swarm:done
         if: inputs.dry-run == false
         uses: ./.swarm-engine/actions/transition
@@ -321,6 +339,24 @@ jobs:
           ISSUE_NUMBER: ${{ inputs.issue }}
         run: |
           gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY"
+
+      # ── role event: issue-closed lifecycle to notify sinks ──────────────────
+      - name: Emit issue-closed lifecycle role event
+        if: inputs.dry-run == false
+        env:
+          ROLE: orchestrator
+          VERDICT: closed
+          SUMMARY: Issue #${{ inputs.issue }} closed after PR #${{ inputs.pr }} merged.
+          DETAILS: ${{ needs.agent.outputs.summary }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          PR_NUMBER: ${{ inputs.pr }}
+          ENABLED_SINKS: ${{ inputs.enabled-sinks }}
+          BUZZ_CHANNEL: ${{ inputs.buzz-channel }}
+          SLACK_CHANNEL: ${{ inputs.slack-channel }}
+          DISCORD_CHANNEL: ${{ inputs.discord-channel }}
+          URL: https://github.com/${{ github.repository }}/issues/${{ inputs.issue }}
+        run: |
+          bash ".swarm-engine/scripts/emit-role-event.sh"
 
       # ── findings comment: issue-closed on issue ────────────────────────────
       - name: Post issue-closed findings comment

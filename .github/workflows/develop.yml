@@ -305,21 +305,33 @@ jobs:
           config-file: swarm.config.yml
 
       # ── findings comment: pr-opened on issue ─────────────────────────────
-      - name: Find PR for issue (comment)
+      - name: Find PR for issue
         id: find-pr
-        if: steps.config.outputs.comments-enabled != 'false' && inputs.dry-run == false
+        if: inputs.dry-run == false
         env:
           ISSUE_NUMBER: ${{ inputs.issue }}
         run: |
-          pr_url="$(gh pr list --repo "$GITHUB_REPOSITORY" \
+          # One lookup; number, title and url all come from the same PR record
+          # so they can never describe different PRs.
+          pr_record="$(gh pr list --repo "$GITHUB_REPOSITORY" \
             --head "swarm/issue-${ISSUE_NUMBER}" --state all \
-            --json url --jq '.[0].url // ""')"
+            --json number,title,url --jq '.[0] // {}')"
+          pr_url="$(printf '%s' "$pr_record" | jq -r '.url // ""')"
+          pr_number="$(printf '%s' "$pr_record" | jq -r '.number // ""')"
+          # PR titles are agent-authored — flatten any newline before it reaches
+          # GITHUB_OUTPUT so a crafted title cannot forge extra output keys.
+          pr_title="$(printf '%s' "$pr_record" | jq -r '.title // ""' | tr -d '\n\r')"
+          # Emit pr-number only when it is a plain integer; downstream consumers
+          # treat an empty value as "no PR" and serialise it as JSON null.
+          if printf '%s' "$pr_number" | grep -qE '^[1-9][0-9]*$'; then
+            printf 'pr-number=%s\n' "$pr_number" >> "$GITHUB_OUTPUT"
+          else
+            printf 'pr-number=\n' >> "$GITHUB_OUTPUT"
+          fi
           pr_title_delim="swarm_$(openssl rand -hex 16)"
           {
             printf 'pr-title<<%s\n' "$pr_title_delim"
-            gh pr list --repo "$GITHUB_REPOSITORY" \
-              --head "swarm/issue-${ISSUE_NUMBER}" --state all \
-              --json title --jq '.[0].title // ""'
+            printf '%s\n' "$pr_title"
             printf '%s\n' "$pr_title_delim"
           } >> "$GITHUB_OUTPUT"
           pr_url_delim="swarm_$(openssl rand -hex 16)"
@@ -352,6 +364,23 @@ jobs:
           ISSUE_NUMBER: ${{ inputs.issue }}
         run: |
           printf 'dry-run: would post pr-opened findings comment on issue #%s\n' "$ISSUE_NUMBER"
+
+      # ── role event: developer pr-opened lifecycle to notify sinks ────────────
+      - name: Emit developer pr-opened role event
+        if: inputs.dry-run == false
+        env:
+          ROLE: developer
+          VERDICT: pr-opened
+          SUMMARY: ${{ steps.find-pr.outputs.pr-title }}
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          PR_NUMBER: ${{ steps.find-pr.outputs.pr-number }}
+          ENABLED_SINKS: ${{ steps.config.outputs.enabled-sinks }}
+          BUZZ_CHANNEL: ${{ steps.config.outputs.notify-buzz-channel }}
+          SLACK_CHANNEL: ${{ steps.config.outputs.notify-slack-channel }}
+          DISCORD_CHANNEL: ${{ steps.config.outputs.notify-discord-channel }}
+          URL: ${{ steps.find-pr.outputs.pr-link }}
+        run: |
+          bash ".swarm-engine/scripts/emit-role-event.sh"
 
       - name: Transition swarm:develop → swarm:qa
         if: inputs.dry-run == false
