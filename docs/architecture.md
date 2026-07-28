@@ -70,6 +70,8 @@ All seven workflows are `on: workflow_call` — they have no self-contained trig
 
 **Engine asset resolution:** every job that invokes engine actions, prompts, or scripts runs a SHA-pinned `actions/checkout` into `path: .swarm-engine` before any engine step. All `uses:` directives and script paths reference `.swarm-engine/…` — not workspace-relative paths. The `engine-repo` and `engine-ref` workflow inputs (defaults: `benmarte/swarm` / `v1`) let callers pin an independent engine version.
 
+**Findings comments:** after each stage completes, the pipeline posts a findings comment sourced from evidence fields in the agent's validated `outcome.json`. `intake.yml` (validator) posts a `validator-verdict` comment on the issue for every verdict. `develop.yml` posts a `pr-opened` comment on the issue after the PR is created. `pr-gates.yml` posts a `review-signoff` comment on the PR (reviewer job) and a `security-signoff` comment on the PR (security job); when security verdict is `fail`, an additional `blocked` comment is also posted on the issue. `docs.yml` posts a `docs-posted` comment on the issue, then an `issue-closed` comment when the issue is closed. All comment bodies are rendered by `scripts/render-comment.sh` (Python `string.Template`, injection-safe) from templates in `templates/comments/`. Set `comments.enabled: false` in `swarm.config.yml` to suppress all comment posting.
+
 ---
 
 ## 4. Composite actions

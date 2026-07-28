@@ -221,6 +221,9 @@ runner:
 
 sweeper:
   schedule: "0 2 * * *"   # nightly at 02:00 UTC; used in your caller workflow cron
+
+comments:
+  enabled: true   # set to false to suppress all per-stage findings comments on issues/PRs
 ```
 
 The `buzz_channel` value is the NIP-29 channel UUID — it is behavior config, not a secret, so it lives in `swarm.config.yml` rather than in GitHub Secrets.
@@ -511,6 +514,24 @@ gh api repos/owner/your-consumer-repo/branches/main/protection \
    5. The `swarm-approval` environment was created by `bootstrap.sh` in Step 2 and configured with you as the required reviewer. Only users listed as reviewers in that environment can approve.
 
    - After merge, **docs** runs the docs agent and transitions the issue to `swarm:done`.
+
+---
+
+### What you will see on your issues and PRs
+
+Swarm posts a findings comment at the end of each pipeline stage. The comment summarizes the stage verdict and key evidence extracted from the agent's `outcome.json`:
+
+| Stage | Comment posted on | Template |
+|-------|-------------------|----------|
+| validator (intake) | issue | `validator-verdict` — verdict + summary for all verdicts |
+| developer (develop) | issue | `pr-opened` — links the opened PR |
+| reviewer (pr-gates) | PR | `review-signoff` — approve or request-changes verdict |
+| security (pr-gates) | PR | `security-signoff` — pass / advisory / fail verdict |
+| security fail | issue | `blocked` — security block with remediation prompt |
+| docs (docs) | issue | `docs-posted` — docs verdict + summary |
+| docs (close) | issue | `issue-closed` — confirms all stages passed |
+
+To suppress all comment posting, set `comments.enabled: false` in `swarm.config.yml`. Comments are enabled by default.
 
 ---
 
