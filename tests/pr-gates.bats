@@ -1213,3 +1213,58 @@ sys.exit(0)
 PYEOF
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# QA gate picks the NEWEST check-run per name (issue #72 follow-up)
+#
+# Re-runs create several check-runs with the same name on one SHA. The API
+# does not contract an order, so selecting .[0] was non-deterministic: a stale
+# success could mask a newer failure in what is a merge gate. Not adversarially
+# triggerable — a fork PR author cannot sequence check-runs — but wrong.
+# ---------------------------------------------------------------------------
+
+# Runs the workflow's OWN selection expression against fixture JSON, rather
+# than a copy, so the test cannot drift away from the shipped logic.
+_qa_select() {
+  local fixture="$1" name="$2" expr
+  expr="$(python3 - "$PR_GATES" <<'PYEOF'
+import re, sys
+src = open(sys.argv[1]).read()
+m = re.search(r"\[\.\[\] \| select\(\.name == \$name\)\] \|.*?\n\s*end", src, re.DOTALL)
+if not m:
+    sys.exit("could not extract the check-run selection jq expression")
+# Strip the YAML block indentation and the trailing quote/paren of the shell line
+sys.stdout.write("\n".join(l.strip() for l in m.group(0).splitlines()))
+PYEOF
+)"
+  printf '%s' "$fixture" | jq -r --arg name "$name" "$expr"
+}
+
+@test "qa gate: newer failure wins over stale success regardless of API order" {
+  older_first='[{"name":"ci","status":"completed","conclusion":"success","started_at":"2026-07-28T10:00:00Z"},{"name":"ci","status":"completed","conclusion":"failure","started_at":"2026-07-28T12:00:00Z"}]'
+  newer_first='[{"name":"ci","status":"completed","conclusion":"failure","started_at":"2026-07-28T12:00:00Z"},{"name":"ci","status":"completed","conclusion":"success","started_at":"2026-07-28T10:00:00Z"}]'
+
+  run _qa_select "$older_first" ci
+  [ "$status" -eq 0 ]
+  [ "$output" = "failure" ]
+
+  # Same data, opposite API ordering — the gate must not change its mind
+  run _qa_select "$newer_first" ci
+  [ "$status" -eq 0 ]
+  [ "$output" = "failure" ]
+}
+
+@test "qa gate: a newer success after an older failure is accepted" {
+  # The legitimate re-run case: a flaky check failed, was re-run, and passed.
+  fixture='[{"name":"ci","status":"completed","conclusion":"failure","started_at":"2026-07-28T10:00:00Z"},{"name":"ci","status":"completed","conclusion":"success","started_at":"2026-07-28T12:00:00Z"}]'
+  run _qa_select "$fixture" ci
+  [ "$status" -eq 0 ]
+  [ "$output" = "success" ]
+}
+
+@test "qa gate: an in-progress newest run reports pending, not the older conclusion" {
+  fixture='[{"name":"ci","status":"completed","conclusion":"success","started_at":"2026-07-28T10:00:00Z"},{"name":"ci","status":"in_progress","conclusion":null,"started_at":"2026-07-28T12:00:00Z"}]'
+  run _qa_select "$fixture" ci
+  [ "$status" -eq 0 ]
+  [ "$output" = "pending" ]
+}

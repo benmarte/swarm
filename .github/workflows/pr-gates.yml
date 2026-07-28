@@ -291,13 +291,18 @@ jobs:
               # Query this check by exact name match.
               # 'not_found'   — no run with this name exists yet.
               # 'pending'     — run exists but status != completed.
-              # Otherwise     — the conclusion value (success, failure, etc.).
+              # Otherwise     — the conclusion value of the NEWEST run with that
+              #                 name. Re-runs create multiple check-runs per name on
+              #                 one SHA, and the API does not contract an order, so
+              #                 sort explicitly: taking .[0] blindly could let a stale
+              #                 success mask a newer failure in a merge gate.
               check_status="$(printf '%s' "$check_runs_json" | jq -r \
                 --arg name "$check_name" \
                 '[.[] | select(.name == $name)] |
+                 sort_by(.started_at // "") |
                  if length == 0 then "not_found"
-                 elif .[0].status != "completed" then "pending"
-                 else .[0].conclusion
+                 elif last.status != "completed" then "pending"
+                 else last.conclusion
                  end')"
 
               # SECURITY NOTE — only 'success' satisfies a required check.
