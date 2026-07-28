@@ -171,6 +171,10 @@ while : ; do
   cat "$validation_log" >&2
 
   if [ "$attempt" -ge "$SWARM_OUTCOME_ATTEMPTS" ]; then
+    # Remove the rejected file here too, not only between retries. A rejected
+    # outcome must never survive this script under ANY exit path — a later step
+    # running on failure would otherwise read it as authoritative.
+    rm -f "$OUTCOME_FILE"
     echo "agent-run: ERROR: outcome.json still schema-invalid after ${SWARM_OUTCOME_ATTEMPTS} attempt(s)" >&2
     echo "  The last validation error is shown above." >&2
     echo "  Raise SWARM_OUTCOME_ATTEMPTS, or check that the model can honour schemas/outcome.schema.json." >&2

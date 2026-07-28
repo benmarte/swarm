@@ -535,6 +535,9 @@ VALID_ENVELOPE='{"type":"result","subtype":"success","is_error":false,"result":"
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"still schema-invalid after 2 attempt(s)"* ]]
+  # The rejected outcome must not survive ANY exit path — a step running on
+  # failure would otherwise read an invalid outcome.json as authoritative.
+  [ ! -f "$GITHUB_WORKSPACE/outcome.json" ]
   # Exactly the configured number of attempts — no runaway retrying
   [ "$(wc -c < "$CLAUDE_STUB_LOG.count" | tr -d " ")" -eq 2 ]
 }
