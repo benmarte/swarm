@@ -129,16 +129,75 @@ echo "agent-run: prompt=$SWARM_PROMPT_FILE"
 echo "agent-run: outcome=$OUTCOME_FILE"
 
 # ---------------------------------------------------------------------------
-# Dispatch to adapter
+# Dispatch to adapter, with a bounded schema-repair loop (#69)
+#
+# Models — especially smaller local ones — routinely return a semantically
+# correct outcome in a slightly wrong shape (notes as an array, a verdict with
+# odd casing). A one-shot contract turns that into a dead pipeline stage that
+# no other workflow can recover, because the fix workflow only triggers on
+# failed CI for an existing branch.
+#
+# The repair path feeds the validator's own error back to the adapter and
+# retries, rather than coercing types. Coercion would silently reinterpret
+# model output and could only ever fix the deviations someone anticipated;
+# error feedback is general and keeps validate-outcome the sole authority on
+# what is acceptable.
 # ---------------------------------------------------------------------------
-echo "agent-run: dispatching to $SWARM_ADAPTER adapter"
-bash "$ADAPTER_SCRIPT"
+SWARM_OUTCOME_ATTEMPTS="${SWARM_OUTCOME_ATTEMPTS:-3}"
+if ! printf '%s' "$SWARM_OUTCOME_ATTEMPTS" | grep -qE '^[1-9][0-9]*$'; then
+  echo "agent-run: ERROR: SWARM_OUTCOME_ATTEMPTS must be a positive integer, got '$SWARM_OUTCOME_ATTEMPTS'" >&2
+  exit 1
+fi
 
-# ---------------------------------------------------------------------------
-# Validate outcome (engine NEVER parses agent prose — validate-outcome is the
-# sole authority on whether the outcome is acceptable)
-# ---------------------------------------------------------------------------
-echo "agent-run: validating outcome.json"
-bash "$VALIDATE_SH" "$OUTCOME_FILE" "$SCHEMA_FILE"
+validation_log="$(mktemp)"
+trap 'rm -f "$validation_log"' EXIT
 
-echo "agent-run: complete — outcome.json is valid"
+attempt=1
+while : ; do
+  echo "agent-run: dispatching to $SWARM_ADAPTER adapter (attempt ${attempt}/${SWARM_OUTCOME_ATTEMPTS})"
+  bash "$ADAPTER_SCRIPT"
+
+  # Engine NEVER parses agent prose — validate-outcome is the sole authority
+  # on whether the outcome is acceptable.
+  echo "agent-run: validating outcome.json"
+  if bash "$VALIDATE_SH" "$OUTCOME_FILE" "$SCHEMA_FILE" >"$validation_log" 2>&1; then
+    cat "$validation_log"
+    echo "agent-run: complete — outcome.json is valid (attempt ${attempt}/${SWARM_OUTCOME_ATTEMPTS})"
+    exit 0
+  fi
+
+  # Always surface the validator's output, so a genuinely broken adapter stays
+  # loud instead of being quietly retried.
+  cat "$validation_log" >&2
+
+  if [ "$attempt" -ge "$SWARM_OUTCOME_ATTEMPTS" ]; then
+    echo "agent-run: ERROR: outcome.json still schema-invalid after ${SWARM_OUTCOME_ATTEMPTS} attempt(s)" >&2
+    echo "  The last validation error is shown above." >&2
+    echo "  Raise SWARM_OUTCOME_ATTEMPTS, or check that the model can honour schemas/outcome.schema.json." >&2
+    exit 1
+  fi
+
+  # Corrective context for the next attempt. The validator's output is trusted
+  # machine text, but it is bounded here anyway: it is echoed into a model
+  # prompt, and an unbounded error dump would crowd out the role prompt.
+  #
+  # ajv's "strict mode:" lines are schema lint about our own schema, not about
+  # the model's output. They are dropped: they say nothing the model can act
+  # on, and left in they consume the truncation budget ahead of the one line
+  # that actually matters.
+  repair_detail="$(grep -v 'strict mode:' "$validation_log" | head -c 4000)"
+
+  SWARM_REPAIR_HINT="Your previous response was rejected: it did not satisfy the required outcome JSON schema.
+
+Validator output:
+${repair_detail}
+
+Emit a corrected outcome JSON object that fixes exactly these problems. Change only what the errors require — do not alter your verdict, findings, or evidence."
+  export SWARM_REPAIR_HINT
+
+  echo "agent-run: schema validation failed — retrying with corrective context"
+  # Drop the rejected file so a later adapter failure cannot leave a stale
+  # invalid outcome.json behind for a subsequent step to read.
+  rm -f "$OUTCOME_FILE"
+  attempt=$(( attempt + 1 ))
+done

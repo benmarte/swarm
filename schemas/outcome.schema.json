@@ -48,6 +48,7 @@
     "properties": {
       "verdict": { "enum": ["confirmed", "duplicate", "invalid", "needs-info"] },
       "refs": {
+        "type": "object",
         "required": ["issue"],
         "properties": { "issue": { "type": "integer", "minimum": 1 } }
       }
@@ -62,6 +63,7 @@
       "properties": {
         "verdict": { "enum": ["spec", "escalated"] },
         "refs": {
+          "type": "object",
           "required": ["issue"],
           "properties": { "issue": { "type": "integer", "minimum": 1 } }
         }
@@ -76,6 +78,7 @@
         "properties": {
           "verdict": { "enum": ["approve", "request-changes"] },
           "refs": {
+            "type": "object",
             "required": ["issue"],
             "properties": { "issue": { "type": "integer", "minimum": 1 } }
           }
@@ -90,6 +93,7 @@
           "properties": {
             "verdict": { "enum": ["pass", "fail", "advisory"] },
             "refs": {
+              "type": "object",
               "required": ["issue"],
               "properties": { "issue": { "type": "integer", "minimum": 1 } }
             }
@@ -104,6 +108,7 @@
             "properties": {
               "verdict": { "enum": ["done", "skipped"] },
               "refs": {
+                "type": "object",
                 "required": ["issue"],
                 "properties": { "issue": { "type": "integer", "minimum": 1 } }
               }
@@ -118,6 +123,7 @@
               "properties": {
                 "verdict": { "enum": ["report"] },
                 "refs": {
+                  "type": "object",
                   "properties": { "issue": { "type": ["integer", "null"] } }
                 }
               }

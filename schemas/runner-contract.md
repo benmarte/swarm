@@ -30,7 +30,26 @@ SWARM_CONTEXT_JSON    JSON string with issue/PR context
 SWARM_ROLE            role name
 SWARM_TIMEOUT         timeout in seconds
 GITHUB_WORKSPACE      working directory (set by Actions)
+SWARM_REPAIR_HINT     set ONLY on a schema-repair retry (see below); unset otherwise
 ```
+
+### Schema repair retries
+
+If the `outcome.json` an adapter writes fails schema validation, the engine
+re-invokes the same adapter with `SWARM_REPAIR_HINT` set to the validator's
+error text, up to `SWARM_OUTCOME_ATTEMPTS` times (default 3) before failing the
+stage. This exists because models — particularly smaller local ones — often
+return a semantically correct outcome in a slightly wrong shape, and a
+one-shot contract turns that into a stalled pipeline no other workflow can
+recover.
+
+An adapter **SHOULD** append `$SWARM_REPAIR_HINT` to the prompt it sends when
+the variable is non-empty, placing it last so the correction is the final
+instruction the model reads. An adapter that ignores it still works, but will
+simply repeat its previous output and exhaust the attempt budget.
+
+The engine never coerces or rewrites adapter output to make it validate —
+`schemas/outcome.schema.json` remains the sole authority on what is acceptable.
 
 The adapter **MUST**:
 

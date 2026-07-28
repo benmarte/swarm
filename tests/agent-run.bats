@@ -468,3 +468,90 @@ teardown() {
 
   grep -q "timeout 120" "$TIMEOUT_STUB_LOG"
 }
+
+# ---------------------------------------------------------------------------
+# Bounded schema-repair loop (#69)
+#
+# A single shape deviation from a model used to kill the stage outright, and
+# nothing downstream could recover it: the fix workflow only triggers on failed
+# CI for an existing swarm/issue-N branch, so an issue stranded mid-pipeline
+# with no PR stayed stuck. These cover recovery, the hint's content, exhaustion,
+# and that a first-attempt success still costs exactly one model call.
+# ---------------------------------------------------------------------------
+
+# Envelope whose result has notes as an ARRAY — the exact deviation observed
+# from deepseek-v4-flash on swarm-testbed run 2.
+INVALID_NOTES_ENVELOPE='{"type":"result","subtype":"success","is_error":false,"result":"{\"schema\":\"swarm/outcome@1\",\"role\":\"validator\",\"verdict\":\"confirmed\",\"refs\":{\"issue\":1},\"evidence\":{\"summary\":\"ok\"},\"notes\":[\"a\",\"b\"]}","session_id":"stub","num_turns":1,"total_cost_usd":0}'
+VALID_ENVELOPE='{"type":"result","subtype":"success","is_error":false,"result":"{\"schema\":\"swarm/outcome@1\",\"role\":\"validator\",\"verdict\":\"confirmed\",\"refs\":{\"issue\":1},\"evidence\":{\"summary\":\"ok\"},\"notes\":\"repaired\"}","session_id":"stub","num_turns":1,"total_cost_usd":0}'
+
+@test "agent-run: schema-invalid outcome is repaired on a later attempt" {
+  export CLAUDE_STUB_QUEUE
+  CLAUDE_STUB_QUEUE="$(mktemp)"
+  printf '%s\n%s\n' "$INVALID_NOTES_ENVELOPE" "$VALID_ENVELOPE" > "$CLAUDE_STUB_QUEUE"
+
+  run bash "$REPO_ROOT/actions/agent-run/agent-run.sh"
+  rm -f "$CLAUDE_STUB_QUEUE"
+
+  [ "$status" -eq 0 ]
+  # Two model calls: the rejected one and the repaired one
+  [ "$(grep -c '^claude ' "$CLAUDE_STUB_LOG")" -eq 2 ]
+  # The surviving outcome.json is the repaired one
+  run jq -r '.notes' "$GITHUB_WORKSPACE/outcome.json"
+  [ "$output" = "repaired" ]
+}
+
+@test "agent-run: repair hint carries the actual validation error, not a generic retry" {
+  export CLAUDE_STUB_QUEUE
+  CLAUDE_STUB_QUEUE="$(mktemp)"
+  printf '%s\n%s\n' "$INVALID_NOTES_ENVELOPE" "$VALID_ENVELOPE" > "$CLAUDE_STUB_QUEUE"
+
+  run bash "$REPO_ROOT/actions/agent-run/agent-run.sh"
+  rm -f "$CLAUDE_STUB_QUEUE"
+  [ "$status" -eq 0 ]
+
+  # Prompts are multi-line, so assert against the whole log rather than a
+  # single line. Only the retry can carry a correction section, so exactly one
+  # occurrence proves it went to the second call and not the first.
+  log_content="$(cat "$CLAUDE_STUB_LOG")"
+  [ "$(grep -c 'Correction Required' "$CLAUDE_STUB_LOG")" -eq 1 ]
+  # The validator's own message must survive into the hint — a generic
+  # "try again" would name neither the field nor the expected type.
+  [[ "$log_content" == *"/notes"* ]]
+  [[ "$log_content" == *"must be string"* ]]
+  # ajv schema-lint noise must NOT be forwarded: it is not actionable by the
+  # model and it crowds out the real error under truncation.
+  [[ "$log_content" != *"strict mode:"* ]]
+}
+
+@test "agent-run: fails loudly after exhausting SWARM_OUTCOME_ATTEMPTS" {
+  export SWARM_OUTCOME_ATTEMPTS=2
+  export CLAUDE_STUB_QUEUE
+  CLAUDE_STUB_QUEUE="$(mktemp)"
+  # Only invalid responses — queue exhaustion repeats the last line
+  printf '%s\n' "$INVALID_NOTES_ENVELOPE" > "$CLAUDE_STUB_QUEUE"
+
+  run bash "$REPO_ROOT/actions/agent-run/agent-run.sh"
+  rm -f "$CLAUDE_STUB_QUEUE"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"still schema-invalid after 2 attempt(s)"* ]]
+  # Exactly the configured number of attempts — no runaway retrying
+  [ "$(grep -c '^claude ' "$CLAUDE_STUB_LOG")" -eq 2 ]
+}
+
+@test "agent-run: first-attempt success costs exactly one model call" {
+  run bash "$REPO_ROOT/actions/agent-run/agent-run.sh"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^claude ' "$CLAUDE_STUB_LOG")" -eq 1 ]
+  # No correction section when nothing needed repairing
+  [[ "$output" != *"retrying with corrective context"* ]]
+}
+
+@test "agent-run: rejects a non-integer SWARM_OUTCOME_ATTEMPTS" {
+  export SWARM_OUTCOME_ATTEMPTS="lots"
+  run bash "$REPO_ROOT/actions/agent-run/agent-run.sh"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"SWARM_OUTCOME_ATTEMPTS must be a positive integer"* ]]
+  # Must fail before spending a model call
+  [ ! -s "$CLAUDE_STUB_LOG" ]
+}

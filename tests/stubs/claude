@@ -12,6 +12,18 @@ LOG="${CLAUDE_STUB_LOG:-/tmp/claude-stub.log}"
 # Record full argv
 echo "claude $*" >> "$LOG"
 
+# CLAUDE_STUB_QUEUE: file with one response envelope per line, served in order
+# by invocation number. Lets a test drive a multi-attempt repair loop (#69).
+# When the queue is exhausted the last line is repeated.
+if [ -n "${CLAUDE_STUB_QUEUE:-}" ] && [ -f "$CLAUDE_STUB_QUEUE" ]; then
+  # This invocation is already recorded above, so the count IS the 1-based index
+  invocation="$(grep -c '^claude ' "$LOG" 2>/dev/null || echo 1)"
+  response="$(sed -n "${invocation}p" "$CLAUDE_STUB_QUEUE")"
+  [ -z "$response" ] && response="$(tail -n 1 "$CLAUDE_STUB_QUEUE")"
+  echo "$response"
+  exit "${CLAUDE_STUB_STATUS:-0}"
+fi
+
 if [ -n "${CLAUDE_STUB_RESPONSE:-}" ]; then
   echo "$CLAUDE_STUB_RESPONSE"
   exit "${CLAUDE_STUB_STATUS:-0}"

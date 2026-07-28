@@ -3,3 +3,7 @@
 !.env.example
 node_modules/
 .DS_Store
+
+# Agent worktrees created by the talos dogfood orchestrator — never committed.
+# Each is an embedded git repo; committing them as gitlinks breaks clones.
+.claude/worktrees/
