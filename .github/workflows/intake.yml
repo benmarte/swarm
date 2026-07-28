@@ -238,7 +238,7 @@ jobs:
           trap 'rm -f "$body"' EXIT
           HEADER="$HEADER" VERDICT="$VERDICT" SUMMARY="$SUMMARY" DETAILS="$DETAILS" \
             bash ".swarm-engine/scripts/render-comment.sh" \
-              ".swarm-engine/.claude/talos/templates/comments/validator-verdict.md" \
+              ".swarm-engine/templates/comments/validator-verdict.md" \
               "$body"
           gh issue comment "$ISSUE_NUMBER" --body-file "$body" --repo "$GITHUB_REPOSITORY"
 

@@ -343,7 +343,7 @@ jobs:
           trap 'rm -f "$body"' EXIT
           HEADER="$HEADER" VERDICT="$VERDICT" SUMMARY="$SUMMARY" DETAILS="$DETAILS" \
             bash ".swarm-engine/scripts/render-comment.sh" \
-              ".swarm-engine/.claude/talos/templates/comments/review-signoff.md" \
+              ".swarm-engine/templates/comments/review-signoff.md" \
               "$body"
           gh pr comment "$PR_NUMBER" --body-file "$body" --repo "$GITHUB_REPOSITORY"
 
@@ -665,7 +665,7 @@ jobs:
           trap 'rm -f "$body"' EXIT
           HEADER="$HEADER" VERDICT="$VERDICT" SUMMARY="$SUMMARY" DETAILS="$DETAILS" \
             bash ".swarm-engine/scripts/render-comment.sh" \
-              ".swarm-engine/.claude/talos/templates/comments/security-signoff.md" \
+              ".swarm-engine/templates/comments/security-signoff.md" \
               "$body"
           gh pr comment "$PR_NUMBER" --body-file "$body" --repo "$GITHUB_REPOSITORY"
 
@@ -683,7 +683,7 @@ jobs:
           trap 'rm -f "$body"' EXIT
           HEADER="$HEADER" VERDICT="$VERDICT" SUMMARY="$SUMMARY" DETAILS="$DETAILS" \
             bash ".swarm-engine/scripts/render-comment.sh" \
-              ".swarm-engine/.claude/talos/templates/comments/blocked.md" \
+              ".swarm-engine/templates/comments/blocked.md" \
               "$body"
           gh issue comment "$ISSUE_NUMBER" --body-file "$body" --repo "$GITHUB_REPOSITORY"
 

@@ -13,7 +13,8 @@
 
 REPO_ROOT="$(git -C "$(dirname "$BATS_TEST_FILENAME")" rev-parse --show-toplevel)"
 RENDER_SH="$REPO_ROOT/scripts/render-comment.sh"
-TEMPLATES="$REPO_ROOT/.claude/talos/templates/comments"
+# Engine-owned templates: top-level templates/comments/ (NOT .claude/talos/)
+TEMPLATES="$REPO_ROOT/templates/comments"
 FIXTURES="$REPO_ROOT/tests/fixtures/comments"
 INTAKE="$REPO_ROOT/.github/workflows/intake.yml"
 DEVELOP="$REPO_ROOT/.github/workflows/develop.yml"
@@ -416,4 +417,66 @@ PYEOF
 @test "templates: render-comment.sh exists and is executable" {
   [ -f "$RENDER_SH" ]
   bash -n "$RENDER_SH"
+}
+
+# ---------------------------------------------------------------------------
+# Structural: engine template dir is at top-level (not .claude/talos/)
+# Guard: tests would FAIL if the templates were missing from the right path.
+# ---------------------------------------------------------------------------
+
+@test "templates dir exists at engine root (templates/comments/), not under .claude/" {
+  [ -d "$REPO_ROOT/templates/comments" ]
+  # Guard: dir must NOT exist only under .claude/ — the engine path must be canonical
+  # (this catches the case where someone moved templates back to .claude/talos)
+  [ -f "$TEMPLATES/validator-verdict.md" ]
+  [ -f "$TEMPLATES/pr-opened.md" ]
+  [ -f "$TEMPLATES/review-signoff.md" ]
+  [ -f "$TEMPLATES/security-signoff.md" ]
+  [ -f "$TEMPLATES/docs-posted.md" ]
+  [ -f "$TEMPLATES/issue-closed.md" ]
+  [ -f "$TEMPLATES/blocked.md" ]
+}
+
+@test "no engine runtime code references .swarm-engine/.claude/ asset paths" {
+  # Engine runtime code must never reference assets via .swarm-engine/.claude/ —
+  # that resolves to talos tooling in the engine checkout, not swarm engine assets.
+  # Legitimate uses of .claude/ as a grep exclusion pattern (e.g. grep -v '^\.claude/')
+  # are excluded from this check.
+  local violations
+  violations="$(grep -rn '\.swarm-engine/\.claude/\|swarm-engine.*\.claude/talos' \
+    "$REPO_ROOT/.github/workflows/" \
+    "$REPO_ROOT/actions/" \
+    "$REPO_ROOT/scripts/" \
+    "$REPO_ROOT/templates/" \
+    --include='*.yml' --include='*.yaml' --include='*.sh' --include='*.md' \
+    2>/dev/null || true)"
+  if [ -n "$violations" ]; then
+    printf 'FAIL: engine code references .swarm-engine/.claude/ path:\n%s\n' "$violations" >&2
+    return 1
+  fi
+}
+
+@test "no workflow references .claude/talos path" {
+  for wf in "$INTAKE" "$DEVELOP" "$PR_GATES" "$DOCS"; do
+    if grep -q '\.claude/talos' "$wf"; then
+      printf 'FAIL: %s still references .claude/talos\n' "$wf" >&2
+      grep -n '\.claude/talos' "$wf" >&2
+      return 1
+    fi
+  done
+}
+
+@test "workflow comment steps reference .swarm-engine/templates/comments/ path" {
+  # All four workflows that post findings comments must use the engine template path.
+  local found=0
+  for wf in "$INTAKE" "$DEVELOP" "$PR_GATES" "$DOCS"; do
+    if grep -q "render-comment.sh" "$wf"; then
+      if ! grep -q '\.swarm-engine/templates/comments/' "$wf"; then
+        printf 'FAIL: %s uses render-comment.sh but not .swarm-engine/templates/comments/\n' "$wf" >&2
+        return 1
+      fi
+      found=$((found + 1))
+    fi
+  done
+  [ "$found" -ge 4 ]
 }

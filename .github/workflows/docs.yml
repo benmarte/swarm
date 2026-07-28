@@ -263,7 +263,7 @@ jobs:
           trap 'rm -f "$body"' EXIT
           HEADER="$HEADER" VERDICT="$VERDICT" SUMMARY="$SUMMARY" DETAILS="$DETAILS" \
             bash ".swarm-engine/scripts/render-comment.sh" \
-              ".swarm-engine/.claude/talos/templates/comments/docs-posted.md" \
+              ".swarm-engine/templates/comments/docs-posted.md" \
               "$body"
           gh issue comment "$ISSUE_NUMBER" --body-file "$body" --repo "$GITHUB_REPOSITORY"
 
@@ -316,7 +316,7 @@ jobs:
           trap 'rm -f "$body"' EXIT
           HEADER="$HEADER" PR="PR #${PR}" SUMMARY="$SUMMARY" DETAILS="$DETAILS" \
             bash ".swarm-engine/scripts/render-comment.sh" \
-              ".swarm-engine/.claude/talos/templates/comments/issue-closed.md" \
+              ".swarm-engine/templates/comments/issue-closed.md" \
               "$body"
           gh issue comment "$ISSUE_NUMBER" --body-file "$body" --repo "$GITHUB_REPOSITORY"
 
