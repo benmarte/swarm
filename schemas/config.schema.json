@@ -92,6 +92,17 @@
           "description": "Cron schedule expression for the sweeper (e.g. '0 2 * * *')."
         }
       }
+    },
+    "comments": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-stage findings comment settings.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Post per-stage findings comments on issues and PRs. Default: true."
+        }
+      }
     }
   },
   "not": {

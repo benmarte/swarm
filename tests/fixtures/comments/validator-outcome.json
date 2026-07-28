@@ -1,0 +1,11 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "validator",
+  "verdict": "confirmed",
+  "refs": { "issue": 7 },
+  "evidence": {
+    "summary": "Issue is valid and actionable; acceptance criteria are clear.",
+    "checks": ["no duplicate found", "acceptance criteria are clear", "scope is bounded"]
+  },
+  "notes": "Proceed to spec stage."
+}

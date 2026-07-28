@@ -43,6 +43,11 @@ outputs:
   swarm-llm-base-url:
     description: Base URL for OpenAI-compatible LLM endpoint (empty when not configured).
     value: ${{ steps.load.outputs.swarm-llm-base-url }}
+  comments-enabled:
+    description: >
+      Whether per-stage findings comments are posted on issues and PRs.
+      Defaults to "true" when comments.enabled is absent from config.
+    value: ${{ steps.load.outputs.comments-enabled }}
 
 runs:
   using: composite
