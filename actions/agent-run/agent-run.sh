@@ -185,7 +185,15 @@ while : ; do
   # the model's output. They are dropped: they say nothing the model can act
   # on, and left in they consume the truncation budget ahead of the one line
   # that actually matters.
-  repair_detail="$(grep -v 'strict mode:' "$validation_log" | head -c 4000)"
+  #
+  # The `|| true` is load-bearing: grep exits 1 when it selects no lines, and
+  # under `set -e` that would abort here — skipping the loud exhaustion error
+  # below and killing the stage with a bare exit 1 and no explanation. That is
+  # precisely the silent failure this loop exists to prevent.
+  repair_detail="$( { grep -v 'strict mode:' "$validation_log" || true; } | head -c 4000 )"
+  if [ -z "$repair_detail" ]; then
+    repair_detail="(validator produced no output — the outcome did not satisfy schemas/outcome.schema.json)"
+  fi
 
   SWARM_REPAIR_HINT="Your previous response was rejected: it did not satisfy the required outcome JSON schema.
 

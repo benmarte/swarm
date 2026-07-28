@@ -555,3 +555,32 @@ VALID_ENVELOPE='{"type":"result","subtype":"success","is_error":false,"result":"
   # Must fail before spending a model call
   [ ! -s "$CLAUDE_STUB_LOG" ]
 }
+
+@test "agent-run: empty validator output still reaches the loud exhaustion error" {
+  # Regression: `grep -v` exits 1 when it selects no lines. Under `set -e` that
+  # aborted hint construction, so the stage died with a bare exit 1 instead of
+  # the loud "still schema-invalid" message — the exact silent failure this
+  # repair loop exists to prevent.
+  export SWARM_OUTCOME_ATTEMPTS=2
+  export CLAUDE_STUB_QUEUE
+  CLAUDE_STUB_QUEUE="$(mktemp)"
+  printf '%s\n' "$INVALID_NOTES_ENVELOPE" > "$CLAUDE_STUB_QUEUE"
+
+  # Mirror the action tree so agent-run.sh resolves a SILENT validator (exits
+  # non-zero, prints nothing) through its normal relative paths. No production
+  # test-hook is added for this — the script under test is unmodified.
+  fake_root="$(mktemp -d)"
+  mkdir -p "$fake_root/actions/agent-run" "$fake_root/actions/validate-outcome" "$fake_root/schemas"
+  ln -s "$REPO_ROOT/actions/agent-run/adapters" "$fake_root/actions/agent-run/adapters"
+  ln -s "$REPO_ROOT/schemas/outcome.schema.json" "$fake_root/schemas/outcome.schema.json"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$fake_root/actions/validate-outcome/validate.sh"
+  chmod +x "$fake_root/actions/validate-outcome/validate.sh"
+
+  run env ACTION_PATH="$fake_root/actions/agent-run" \
+    bash "$REPO_ROOT/actions/agent-run/agent-run.sh"
+  rm -f "$CLAUDE_STUB_QUEUE"
+  rm -rf "$fake_root"
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"still schema-invalid after 2 attempt(s)"* ]]
+}
