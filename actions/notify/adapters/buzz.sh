@@ -21,6 +21,7 @@
 # Optional env:
 #   NOTIFY_TEXT — pre-rendered notification text (set by notify.sh template
 #                 rendering). When present, used as the message body.
+#   NAK_BIN     — path to a pre-installed nak binary; auto-provisioned when absent.
 #
 # Argument:
 #   $1 — path to the canonical event JSON file
@@ -51,11 +52,112 @@ if [ -z "${BUZZ_CHANNEL:-}" ]; then
   exit 1
 fi
 
-NAK_BIN="${NAK_BIN:-nak}"
-if ! command -v "$NAK_BIN" >/dev/null 2>&1; then
-  echo "notify/buzz: ERROR: 'nak' CLI not found — install it (brew install nak) and ensure it is on PATH" >&2
-  exit 1
-fi
+# ---------------------------------------------------------------------------
+# nak auto-provisioner
+#
+# PINNED RELEASE — v0.20.2 (2025-07-28)
+# To upgrade: update NAK_VERSION + all NAK_SHA256_* constants below,
+# then regenerate checksums with:
+#   for os_arch in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+#     curl -fsSL "https://github.com/fiatjaf/nak/releases/download/v<VER>/nak-v<VER>-${os_arch}" | sha256sum
+#   done
+# NAK_SHA256_* may be overridden via env vars for test isolation.
+# ---------------------------------------------------------------------------
+NAK_VERSION="v0.20.2"
+NAK_SHA256_linux_amd64="${NAK_SHA256_linux_amd64:-424db88043d26d9c2f1cbd2d9bc06582c39526f91f8e5523590439d4257da087}"
+NAK_SHA256_linux_arm64="${NAK_SHA256_linux_arm64:-ea5d5032e56aee8fea3bc90e53e194fee39f93a3979575e9f1f27f4cffa129f5}"
+NAK_SHA256_darwin_amd64="${NAK_SHA256_darwin_amd64:-a5685466b6b9f414ec53420ce2fd18f61405a337187bc956ea4b49dd0cd1667a}"
+NAK_SHA256_darwin_arm64="${NAK_SHA256_darwin_arm64:-68af2ae0ed28ac806e5d326a8b4f87f4f3998678c227226c584f297bee7ef7eb}"
+
+# _nak_ensure — sets NAK_BIN to a working nak binary.
+# If NAK_BIN is already set and executable, uses it.
+# If nak is on PATH, uses it and records the path in NAK_BIN.
+# Otherwise downloads the pinned release for the current OS/arch,
+# verifies the SHA256 checksum, and sets NAK_BIN to the downloaded binary.
+# Exits 1 (loud) on any download or checksum failure.
+_nak_ensure() {
+  # 1. Caller-supplied override wins
+  if [ -n "${NAK_BIN:-}" ]; then
+    if command -v "$NAK_BIN" >/dev/null 2>&1 || [ -x "$NAK_BIN" ]; then
+      return 0
+    fi
+    echo "notify/buzz: ERROR: NAK_BIN='$NAK_BIN' is not executable" >&2
+    exit 1
+  fi
+
+  # 2. nak already on PATH — record it for explicitness and return
+  if command -v nak >/dev/null 2>&1; then
+    NAK_BIN="$(command -v nak)"
+    echo "notify/buzz: using nak from PATH: $NAK_BIN"
+    return 0
+  fi
+
+  # 3. Auto-provision: detect OS / arch
+  # _NAK_OS and _NAK_MACHINE may be overridden in tests to target a specific platform.
+  _os="${_NAK_OS:-$(uname -s | tr '[:upper:]' '[:lower:]')}"
+  _machine="${_NAK_MACHINE:-$(uname -m)}"
+  case "$_machine" in
+    x86_64)  _arch="amd64" ;;
+    aarch64|arm64) _arch="arm64" ;;
+    *)
+      echo "notify/buzz: ERROR: unsupported machine architecture '$_machine' — install nak manually" >&2
+      exit 1
+      ;;
+  esac
+
+  case "$_os" in
+    linux|darwin) ;;
+    *)
+      echo "notify/buzz: ERROR: unsupported OS '$_os' — install nak manually" >&2
+      exit 1
+      ;;
+  esac
+
+  _key="${_os}_${_arch}"
+  # Resolve the expected checksum by indirect reference (portable bash 3.2+)
+  eval "_expected_sha=\"\${NAK_SHA256_${_key}:-}\""
+  if [ -z "$_expected_sha" ]; then
+    echo "notify/buzz: ERROR: no pinned SHA256 for ${_key} — install nak manually" >&2
+    exit 1
+  fi
+
+  _asset_name="nak-${NAK_VERSION}-${_os}-${_arch}"
+  _download_url="https://github.com/fiatjaf/nak/releases/download/${NAK_VERSION}/${_asset_name}"
+  _tmp_dir="${RUNNER_TEMP:-$(mktemp -d)}"
+  _tmp_bin="${_tmp_dir}/nak"
+
+  echo "notify/buzz: nak not found — downloading ${NAK_VERSION} for ${_os}/${_arch}"
+  if ! curl -fsSL "$_download_url" -o "$_tmp_bin"; then
+    echo "notify/buzz: ERROR: failed to download nak from $_download_url" >&2
+    exit 1
+  fi
+
+  # Verify SHA256 checksum (supports both sha256sum and shasum -a 256)
+  if command -v sha256sum >/dev/null 2>&1; then
+    _got_sha="$(sha256sum "$_tmp_bin" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    _got_sha="$(shasum -a 256 "$_tmp_bin" | awk '{print $1}')"
+  else
+    echo "notify/buzz: ERROR: neither sha256sum nor shasum available — cannot verify nak checksum" >&2
+    rm -f "$_tmp_bin"
+    exit 1
+  fi
+
+  if [ "$_got_sha" != "$_expected_sha" ]; then
+    echo "notify/buzz: ERROR: nak checksum mismatch for ${_asset_name}" >&2
+    echo "  expected: $_expected_sha" >&2
+    echo "  got:      $_got_sha" >&2
+    echo "  Refusing to execute an unverified binary." >&2
+    rm -f "$_tmp_bin"
+    exit 1
+  fi
+
+  chmod +x "$_tmp_bin"
+  NAK_BIN="$_tmp_bin"
+  echo "notify/buzz: nak provisioned and verified at $NAK_BIN"
+}
+
+_nak_ensure
 
 # ---------------------------------------------------------------------------
 # Build plain markdown message: use NOTIFY_TEXT when available (preferred),
