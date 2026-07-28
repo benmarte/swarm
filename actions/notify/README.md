@@ -9,17 +9,32 @@ Composite action — **canonical event fan-out**. Validates a swarm event JSON a
 | `event-file` | yes | — | Path to a canonical event JSON file |
 | `enabled-sinks` | no | `""` | Comma-separated list of sinks: `slack`, `buzz`, `discord`, `teams`. Empty = no-op |
 | `buzz-channel` | no | `""` | NIP-29 channel UUID for Buzz (from `swarm.config.yml notify.buzz_channel`) |
+| `slack-channel` | no | `""` | Slack channel ID for bot-token mode (from `swarm.config.yml notify.slack_channel`) |
+| `discord-channel` | no | `""` | Discord channel ID for bot-token mode (from `swarm.config.yml notify.discord_channel`) |
 
 ## Sinks
 
 | Sink | Mechanism | Required secret(s) |
 |------|-----------|-------------------|
-| `slack` | Outbound webhook POST | `SWARM_SLACK_WEBHOOK` |
-| `discord` | Outbound webhook POST | `SWARM_DISCORD_WEBHOOK` |
+| `slack` | Webhook POST **or** bot-token POST (see below) | `SWARM_SLACK_WEBHOOK` (webhook mode) **or** `SWARM_SLACK_BOT_TOKEN` + `slack-channel` (bot-token mode) |
+| `discord` | Webhook POST **or** bot-token POST (see below) | `SWARM_DISCORD_WEBHOOK` (webhook mode) **or** `SWARM_DISCORD_BOT_TOKEN` + `discord-channel` (bot-token mode) |
 | `teams` | Outbound webhook POST (Adaptive Card) | `SWARM_TEAMS_WEBHOOK` |
 | `buzz` | Nostr/NIP-29 relay via `nak` CLI — **not a webhook** | `SWARM_BUZZ_RELAY_URL`, `SWARM_BUZZ_PRIVATE_KEY` |
 
-Secrets are read from the job environment (`env:` in the calling workflow). The `buzz-channel` input is behavioural config, not a secret.
+Secrets are read from the job environment (`env:` in the calling workflow). Channel inputs (`buzz-channel`, `slack-channel`, `discord-channel`) are behavioural config, not secrets.
+
+## Slack and Discord: two authentication modes
+
+Both the Slack and Discord adapters support two mutually exclusive authentication modes:
+
+| Mode | When to use | Required credentials |
+|------|------------|---------------------|
+| **Webhook** | Simplest setup; no channel ID needed | `SWARM_SLACK_WEBHOOK` / `SWARM_DISCORD_WEBHOOK` incoming webhook URL |
+| **Bot-token** | Posts as the bot's own identity (name + avatar); requires a channel ID | `SWARM_SLACK_BOT_TOKEN` / `SWARM_DISCORD_BOT_TOKEN` + `slack-channel` / `discord-channel` input |
+
+**Precedence:** webhook wins when both `SWARM_SLACK_WEBHOOK` and `SWARM_SLACK_BOT_TOKEN` are set (same rule for Discord). Configure only one mode per platform.
+
+**Identity caveat:** bot-token mode posts messages as the bot application's identity (its registered name and avatar). Webhook mode posts as the webhook's configured name/icon, which may differ.
 
 ## Buzz / Nostr mechanism
 
