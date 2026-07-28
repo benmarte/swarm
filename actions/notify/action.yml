@@ -58,4 +58,5 @@ runs:
         SWARM_TEAMS_WEBHOOK: ${{ env.SWARM_TEAMS_WEBHOOK }}
         SWARM_BUZZ_RELAY_URL: ${{ env.SWARM_BUZZ_RELAY_URL }}
         SWARM_BUZZ_PRIVATE_KEY: ${{ env.SWARM_BUZZ_PRIVATE_KEY }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: bash "$ACTION_PATH/notify.sh"
