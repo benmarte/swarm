@@ -1,0 +1,7 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "pm",
+  "verdict": "spec",
+  "refs": { "issue": null },
+  "evidence": { "summary": "refs.issue null is not allowed for issue-scoped roles." }
+}

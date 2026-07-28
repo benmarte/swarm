@@ -64,7 +64,7 @@ Every issue-scoped job runs under `concurrency: swarm-${{ issue.number }}` — t
 
 ### 2.4 Contracts (in `schemas/`, versioned)
 
-- `outcome.schema.json` — `{schema: "swarm/outcome@1", role, verdict, refs: {issue, pr}, evidence: {...}, notes}`. Per-role verdict enums (validator: confirmed|duplicate|invalid|needs-info; pm: spec|escalated; reviewer: approve|request-changes; security: pass|fail|advisory; docs: done|skipped; orchestrator: report).
+- `outcome.schema.json` — `{schema: "swarm/outcome@1", role, verdict, refs: {issue, pr}, evidence: {...}, notes}`. Per-role verdict enums (validator: confirmed|duplicate|invalid|needs-info; pm: spec|escalated; reviewer: approve|request-changes; security: pass|fail|advisory; docs: done|skipped; orchestrator: report). **`refs.issue` by role:** all issue-scoped roles (validator, pm, reviewer, security, docs) require `refs.issue` to be a positive integer ≥ 1; the orchestrator role emits repo-scoped reports not tied to a single issue, so `refs.issue` may be null or omitted — `refs: {}` is valid for orchestrator.
 - `event.schema.json` — notifier payload: `{event, repo, issue, pr, stage_from, stage_to, actor, url, summary}`.
 - `runner-contract.md` — both adapter interfaces (`agent-run` decision roles, `develop-run` coding role) so new adapters (codex, goose, aider, custom local harnesses) are added by dropping in one script, never by touching workflows.
 

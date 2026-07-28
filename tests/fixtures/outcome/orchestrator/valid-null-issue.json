@@ -1,0 +1,11 @@
+{
+  "schema": "swarm/outcome@1",
+  "role": "orchestrator",
+  "verdict": "report",
+  "refs": { "issue": null },
+  "evidence": {
+    "summary": "Repo-scoped sweep: no stuck issues found.",
+    "checked_issues": [10, 11, 12],
+    "stuck": []
+  }
+}

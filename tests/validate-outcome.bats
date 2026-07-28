@@ -112,12 +112,44 @@ validate_fails() {
   validate_passes "$OUTCOME_SCHEMA" "$FIXTURES/outcome/orchestrator/valid.json"
 }
 
+@test "outcome/orchestrator valid-null-issue.json passes schema (repo-scoped: issue may be null)" {
+  validate_passes "$OUTCOME_SCHEMA" "$FIXTURES/outcome/orchestrator/valid-null-issue.json"
+}
+
+@test "outcome/orchestrator valid-no-issue.json passes schema (repo-scoped: issue may be absent)" {
+  validate_passes "$OUTCOME_SCHEMA" "$FIXTURES/outcome/orchestrator/valid-no-issue.json"
+}
+
 @test "outcome/orchestrator invalid-missing-field.json fails schema" {
   validate_fails "$OUTCOME_SCHEMA" "$FIXTURES/outcome/orchestrator/invalid-missing-field.json"
 }
 
 @test "outcome/orchestrator invalid-bad-verdict.json fails schema" {
   validate_fails "$OUTCOME_SCHEMA" "$FIXTURES/outcome/orchestrator/invalid-bad-verdict.json"
+}
+
+# ---------------------------------------------------------------------------
+# outcome — issue-scoped roles: refs.issue null still rejected
+# ---------------------------------------------------------------------------
+
+@test "outcome/validator invalid-null-issue.json fails schema (null not allowed for issue-scoped role)" {
+  validate_fails "$OUTCOME_SCHEMA" "$FIXTURES/outcome/validator/invalid-null-issue.json"
+}
+
+@test "outcome/pm invalid-null-issue.json fails schema (null not allowed for issue-scoped role)" {
+  validate_fails "$OUTCOME_SCHEMA" "$FIXTURES/outcome/pm/invalid-null-issue.json"
+}
+
+@test "outcome/reviewer invalid-null-issue.json fails schema (null not allowed for issue-scoped role)" {
+  validate_fails "$OUTCOME_SCHEMA" "$FIXTURES/outcome/reviewer/invalid-null-issue.json"
+}
+
+@test "outcome/security invalid-null-issue.json fails schema (null not allowed for issue-scoped role)" {
+  validate_fails "$OUTCOME_SCHEMA" "$FIXTURES/outcome/security/invalid-null-issue.json"
+}
+
+@test "outcome/docs invalid-null-issue.json fails schema (null not allowed for issue-scoped role)" {
+  validate_fails "$OUTCOME_SCHEMA" "$FIXTURES/outcome/docs/invalid-null-issue.json"
 }
 
 # ---------------------------------------------------------------------------

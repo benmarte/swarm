@@ -3,5 +3,5 @@
   "role": "orchestrator",
   "verdict": "report",
   "refs": {},
-  "evidence": { "summary": "refs.issue is missing (empty refs object)." }
+  "notes": "Missing required evidence field."
 }
