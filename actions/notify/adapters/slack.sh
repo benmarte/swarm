@@ -79,6 +79,24 @@ if [ "$_MODE" = "bot" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Threading (bot-token mode only — webhook mode silently posts root messages,
+# no warning emitted per AC3).
+# ---------------------------------------------------------------------------
+# _thread_ts is the Slack thread_ts to reply to, or empty for a root post.
+_thread_ts=""
+if [ "$_MODE" = "bot" ]; then
+  _ts_candidate="${SWARM_THREAD_ANCHOR_SLACK:-}"
+  if [ -n "$_ts_candidate" ]; then
+    # Allowlist: Slack thread_ts is <epoch>.<sequence> (all digits)
+    if printf '%s' "$_ts_candidate" | grep -qE '^[0-9]+\.[0-9]+$'; then
+      _thread_ts="$_ts_candidate"
+    else
+      echo "notify/slack: WARNING: SWARM_THREAD_ANCHOR_SLACK has invalid format — posting as root" >&2
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Per-event color mapping (talos-parity)
 # ---------------------------------------------------------------------------
 _event_type="$(jq -r '.event' "$EVENT_FILE")"
@@ -109,8 +127,9 @@ fi
 
 # ---------------------------------------------------------------------------
 # Build Slack blocks payload (talos-parity: section + context + color attachment)
+# _base_payload has no channel and no thread_ts — those are added per mode below.
 # ---------------------------------------------------------------------------
-payload=$(jq -n \
+_base_payload=$(jq -n \
   --slurpfile ev "$EVENT_FILE" \
   --arg color "$_color" \
   --arg body "$_notify_text" \
@@ -153,22 +172,29 @@ payload=$(jq -n \
   }')
 
 if [ "$_MODE" = "webhook" ]; then
+  # Webhook mode: no threading (Slack incoming webhooks have no thread_ts).
+  # No warning is emitted — webhook-mode users opted out of threading implicitly.
   echo "notify/slack: posting via webhook"
   if ! curl --silent --fail --show-error \
       -X POST \
       -H "Content-Type: application/json" \
-      -d "$payload" \
+      -d "$_base_payload" \
       "$SWARM_SLACK_WEBHOOK"; then
     echo "notify/slack: ERROR: POST to Slack webhook failed" >&2
     exit 1
   fi
 else
-  # Bot-token mode: include "channel" in the payload
-  payload="$(printf '%s' "$payload" | jq --arg ch "$SLACK_CHANNEL" '. + {channel: $ch}')"
-  echo "notify/slack: posting via bot token to channel $SLACK_CHANNEL"
-  # Capture response body and curl exit code separately.
-  # curl can fail (network, DNS, timeout) and return empty body — must not treat
-  # that as success (would produce false-negative: empty body has no ok:false).
+  # Bot-token mode: add channel; optionally add thread_ts for threading.
+  payload="$(printf '%s' "$_base_payload" | jq --arg ch "$SLACK_CHANNEL" '. + {channel: $ch}')"
+  if [ -n "$_thread_ts" ]; then
+    payload="$(printf '%s' "$payload" | jq --arg ts "$_thread_ts" '. + {thread_ts: $ts}')"
+    echo "notify/slack: posting via bot token to channel $SLACK_CHANNEL (thread: $_thread_ts)"
+  else
+    echo "notify/slack: posting via bot token to channel $SLACK_CHANNEL"
+  fi
+
+  # Capture response body; curl can fail (network/DNS/timeout) — must not treat
+  # an empty body as success (empty body has no ok:false to catch).
   _tmp_response="$(mktemp)"
   trap 'rm -f "$_tmp_response"' EXIT
   if ! curl --silent --show-error \
@@ -182,11 +208,51 @@ else
     exit 1
   fi
   _response="$(cat "$_tmp_response")"
-  # Slack always returns HTTP 200; check the ok field for the real API result
+
+  # Slack always returns HTTP 200; check the ok field for the real result.
   if printf '%s' "$_response" | grep -q '"ok":false'; then
-    _slack_err="$(printf '%s' "$_response" | grep -o '"error":"[^"]*"' | head -1)"
-    echo "notify/slack: ERROR: Slack API returned ok:false — $_slack_err" >&2
-    exit 1
+    # Stale-anchor self-healing: if the root message was deleted, Slack returns
+    # thread_not_found.  Clear the stale anchor and retry as a fresh root post.
+    if printf '%s' "$_response" | grep -q '"error":"thread_not_found"'; then
+      echo "notify/slack: stale thread anchor — retrying as fresh root post" >&2
+      _retry_payload="$(printf '%s' "$_base_payload" | jq --arg ch "$SLACK_CHANNEL" '. + {channel: $ch}')"
+      _tmp_response2="$(mktemp)"
+      if ! curl --silent --show-error \
+          -X POST \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer $SWARM_SLACK_BOT_TOKEN" \
+          -d "$_retry_payload" \
+          --output "$_tmp_response2" \
+          "https://slack.com/api/chat.postMessage"; then
+        rm -f "$_tmp_response2"
+        echo "notify/slack: ERROR: stale-anchor recovery request failed (network/DNS/timeout)" >&2
+        exit 1
+      fi
+      _response2="$(cat "$_tmp_response2")"
+      rm -f "$_tmp_response2"
+      if printf '%s' "$_response2" | grep -q '"ok":false'; then
+        _slack_err2="$(printf '%s' "$_response2" | grep -o '"error":"[^"]*"' | head -1)"
+        echo "notify/slack: ERROR: stale-anchor recovery failed — $_slack_err2" >&2
+        exit 1
+      fi
+      # Recovery succeeded: store the new root message ts as the fresh anchor.
+      _new_ts="$(printf '%s' "$_response2" | jq -r '.ts // ""' 2>/dev/null | tr -d '\n\r')"
+      if [ -n "$_new_ts" ] && [ -n "${SWARM_ANCHOR_OUT:-}" ]; then
+        printf '%s' "$_new_ts" > "$SWARM_ANCHOR_OUT"
+      fi
+    else
+      _slack_err="$(printf '%s' "$_response" | grep -o '"error":"[^"]*"' | head -1)"
+      echo "notify/slack: ERROR: Slack API returned ok:false — $_slack_err" >&2
+      exit 1
+    fi
+  else
+    # Success: if this was the first post (no existing anchor), store the ts.
+    if [ -z "$_thread_ts" ]; then
+      _new_ts="$(printf '%s' "$_response" | jq -r '.ts // ""' 2>/dev/null | tr -d '\n\r')"
+      if [ -n "$_new_ts" ] && [ -n "${SWARM_ANCHOR_OUT:-}" ]; then
+        printf '%s' "$_new_ts" > "$SWARM_ANCHOR_OUT"
+      fi
+    fi
   fi
 fi
 

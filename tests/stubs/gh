@@ -76,6 +76,7 @@ if [ "${1:-}" = "api" ]; then
   path=""
   jq_expr=""
   fields=()
+  input_file=""
   args=("$@")
   i=1
   while [ $i -lt ${#args[@]} ]; do
@@ -93,6 +94,14 @@ if [ "${1:-}" = "api" ]; then
         i=$((i+1))
         fields+=("${args[$i]}")
         ;;
+      --raw-field)
+        i=$((i+1))
+        fields+=("${args[$i]}")
+        ;;
+      --input)
+        i=$((i+1))
+        input_file="${args[$i]}"
+        ;;
       -*)
         # skip unknown flag; next arg is its value if it's not another flag
         next_i=$((i+1))
@@ -108,6 +117,36 @@ if [ "${1:-}" = "api" ]; then
     esac
     i=$((i+1))
   done
+
+  # GET /repos/.../issues/<N> (single issue — for anchor state reads)
+  if [ "$method" = "GET" ] && printf '%s' "$path" | grep -qE '/issues/[0-9]+$'; then
+    # GH_STUB_ISSUE_GET_FAIL=1 simulates a transient API failure (rate-limit, network)
+    if [ -n "${GH_STUB_ISSUE_GET_FAIL:-}" ]; then
+      printf '{"message":"API rate limit exceeded"}\n' >&2
+      exit 1
+    fi
+    _default_issue_json='{"number":1,"title":"test","body":"","labels":[],"comments":[]}'
+    issue_json="${GH_STUB_ISSUE_JSON:-$_default_issue_json}"
+    if [ -n "$jq_expr" ]; then
+      printf '%s' "$issue_json" | jq -r "$jq_expr"
+    else
+      printf '%s\n' "$issue_json"
+    fi
+    exit 0
+  fi
+
+  # PATCH /repos/.../issues/<N> (anchor state write)
+  if [ "$method" = "PATCH" ] && printf '%s' "$path" | grep -qE '/issues/[0-9]+$'; then
+    # Log body content for test assertions
+    if [ -n "${GH_STUB_ISSUE_BODY_LOG:-}" ]; then
+      if [ -n "$input_file" ] && [ "$input_file" != "-" ] && [ -f "$input_file" ]; then
+        cat "$input_file" > "$GH_STUB_ISSUE_BODY_LOG"
+      elif [ -n "$input_file" ] && [ "$input_file" = "-" ]; then
+        cat > "$GH_STUB_ISSUE_BODY_LOG"
+      fi
+    fi
+    exit 0
+  fi
 
   # GET /repos/.../pulls (PR verification) → return stub PR array
   if [ "$method" = "GET" ] && printf '%s' "$path" | grep -q '/pulls$'; then

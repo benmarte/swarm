@@ -58,6 +58,28 @@ if [ -n "$body" ]; then
   echo "$body" >> "$BODY_LOG"
 fi
 
+# Queue support: CURL_STUB_QUEUE file contains one response per line.
+# Each line is a JSON response body (or "fail:<status>" to simulate failure).
+# When the queue is exhausted, falls back to CURL_STUB_RESPONSE / CURL_STUB_STATUS.
+if [ -n "${CURL_STUB_QUEUE:-}" ] && [ -s "$CURL_STUB_QUEUE" ]; then
+  raw="$(head -1 "$CURL_STUB_QUEUE")"
+  tail -n +2 "$CURL_STUB_QUEUE" > "$CURL_STUB_QUEUE.tmp" && mv "$CURL_STUB_QUEUE.tmp" "$CURL_STUB_QUEUE"
+  case "$raw" in
+    fail:*)
+      _exit_code="${raw#fail:}"
+      exit "${_exit_code:-1}"
+      ;;
+    *)
+      if [ -n "$output_file" ] && [ "$output_file" != "/dev/null" ]; then
+        printf '%s\n' "$raw" > "$output_file"
+      else
+        echo "$raw"
+      fi
+      exit 0
+      ;;
+  esac
+fi
+
 if [ -n "${CURL_STUB_RESPONSE:-}" ]; then
   if [ -n "$output_file" ] && [ "$output_file" != "/dev/null" ]; then
     # Write response to the --output file, matching real curl behaviour

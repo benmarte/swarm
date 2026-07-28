@@ -14,6 +14,11 @@
 #   SWARM_BUZZ_PRIVATE_KEY   — required when buzz is enabled
 #   BUZZ_CHANNEL             — NIP-29 channel UUID (from swarm.config.yml notify.buzz_channel)
 #
+# Threading: anchors are read from / written to the issue body via GitHub API.
+# Adapters read SWARM_THREAD_ANCHOR_<SINK> and report new anchors via the
+# SWARM_ANCHOR_OUT temp file.  All anchor operations fail soft (never abort
+# the notification path).
+#
 # Exits 1 on any validation or adapter failure.
 set -euo pipefail
 
@@ -21,6 +26,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ADAPTERS_DIR="$SCRIPT_DIR/adapters"
 SCHEMAS_DIR="$SCRIPT_DIR/../../schemas"
 TEMPLATES_DIR="$SCRIPT_DIR/../../templates/notifications"
+
+# Source thread-anchor state helper (defines swarm_anchor_read / swarm_anchor_set)
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/anchor_state.sh"
 
 # ---------------------------------------------------------------------------
 # Input validation
@@ -107,6 +116,29 @@ print(rendered)
 fi
 
 # ---------------------------------------------------------------------------
+# Thread-anchor read — load existing per-sink anchors for this issue.
+# Fails soft: if gh is unavailable or the issue has no anchor, starts fresh.
+# ---------------------------------------------------------------------------
+_ev_repo="$(jq -r '.repo' "$EVENT_FILE")"
+_ev_issue="$(jq -r '.issue | tostring' "$EVENT_FILE")"
+
+_anchors_json="{}"
+_anchors_json="$(swarm_anchor_read "$_ev_repo" "$_ev_issue")" || _anchors_json="{}"
+echo "notify: thread anchors for ${_ev_repo}#${_ev_issue}: ${_anchors_json}"
+
+# Export per-sink anchors so adapters can thread replies to the root message.
+SWARM_THREAD_ANCHOR_SLACK=""
+SWARM_THREAD_ANCHOR_SLACK="$(printf '%s' "$_anchors_json" | jq -r '.slack // ""' 2>/dev/null)" \
+  || SWARM_THREAD_ANCHOR_SLACK=""
+SWARM_THREAD_ANCHOR_DISCORD=""
+SWARM_THREAD_ANCHOR_DISCORD="$(printf '%s' "$_anchors_json" | jq -r '.discord // ""' 2>/dev/null)" \
+  || SWARM_THREAD_ANCHOR_DISCORD=""
+SWARM_THREAD_ANCHOR_BUZZ=""
+SWARM_THREAD_ANCHOR_BUZZ="$(printf '%s' "$_anchors_json" | jq -r '.buzz // ""' 2>/dev/null)" \
+  || SWARM_THREAD_ANCHOR_BUZZ=""
+export SWARM_THREAD_ANCHOR_SLACK SWARM_THREAD_ANCHOR_DISCORD SWARM_THREAD_ANCHOR_BUZZ
+
+# ---------------------------------------------------------------------------
 # Fan-out to enabled sinks
 # ---------------------------------------------------------------------------
 IFS=',' read -ra sinks <<< "$ENABLED_SINKS"
@@ -125,11 +157,36 @@ for sink in "${sinks[@]}"; do
     exit 1
   fi
 
+  # Provide a temp file for the adapter to report a new anchor value.
+  # The adapter writes the new root anchor (first post only, or stale-anchor
+  # recovery) to this file; notify.sh persists it to the issue body.
+  _anchor_out="$(mktemp)"
+  export SWARM_ANCHOR_OUT="$_anchor_out"
+
   echo "notify: dispatching to sink: $sink"
   if ! bash "$adapter" "$EVENT_FILE"; then
+    rm -f "$_anchor_out"
+    unset SWARM_ANCHOR_OUT
     echo "notify: ERROR: sink '$sink' failed — aborting" >&2
     exit 1
   fi
+
+  # Persist new anchor if the adapter reported one (fail soft)
+  if [ -s "$_anchor_out" ]; then
+    _new_anchor="$(tr -d '\n\r' < "$_anchor_out")"
+    if [ -n "$_new_anchor" ]; then
+      swarm_anchor_set "$_ev_repo" "$_ev_issue" "$sink" "$_new_anchor" || true
+      # Update cached anchor so remaining sinks in this run see the fresh value
+      case "$sink" in
+        slack)   SWARM_THREAD_ANCHOR_SLACK="$_new_anchor" ;;
+        discord) SWARM_THREAD_ANCHOR_DISCORD="$_new_anchor" ;;
+        buzz)    SWARM_THREAD_ANCHOR_BUZZ="$_new_anchor" ;;
+      esac
+    fi
+  fi
+  rm -f "$_anchor_out"
+  unset SWARM_ANCHOR_OUT
+
   echo "notify: sink '$sink' delivered"
 done
 
