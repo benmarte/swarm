@@ -458,6 +458,96 @@ teardown() {
   [ ! -s "$NAK_LOG" ]
 }
 
+@test "buzz adapter: nak absent — curl download failure causes loud error, no exec" {
+  # Build a stubs dir with curl stub but without nak
+  _no_nak_curl="${BATS_TEST_TMPDIR}/stubs-no-nak-curlfail"
+  mkdir -p "$_no_nak_curl"
+  for _f in "$STUBS_DIR"/*; do
+    _n="$(basename "$_f")"
+    [ "$_n" = "nak" ] && continue
+    ln -sf "$_f" "$_no_nak_curl/$_n"
+  done
+
+  # Force the curl stub to exit non-zero (simulates network failure / 404)
+  export CURL_STUB_STATUS=22
+  export _NAK_OS=linux
+  export _NAK_MACHINE=x86_64
+  unset NAK_BIN
+
+  export PATH="${_no_nak_curl}:/usr/bin:/bin"
+
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
+  [ "$status" -ne 0 ]
+  # Must report the download failure clearly
+  [[ "$output" == *"failed to download nak"* ]]
+  # nak must NOT have been invoked
+  [ ! -s "$NAK_LOG" ]
+}
+
+@test "buzz adapter: nak absent — provisioner targets linux-amd64 URL when OS/arch overridden" {
+  # Verify that the download URL contains the correct OS/arch slug for linux/x86_64
+  _no_nak_linux="${BATS_TEST_TMPDIR}/stubs-no-nak-linux"
+  mkdir -p "$_no_nak_linux"
+  for _f in "$STUBS_DIR"/*; do
+    _n="$(basename "$_f")"
+    [ "$_n" = "nak" ] && continue
+    ln -sf "$_f" "$_no_nak_linux/$_n"
+  done
+
+  _content='#!/bin/sh'$'\n''exit 0'
+  if /usr/bin/sha256sum /dev/null >/dev/null 2>&1; then
+    _sha="$(printf '%s\n' "$_content" | /usr/bin/sha256sum | awk '{print $1}')"
+  else
+    _sha="$(printf '%s\n' "$_content" | /usr/bin/shasum -a 256 | awk '{print $1}')"
+  fi
+
+  export CURL_STUB_RESPONSE="$_content"
+  export NAK_SHA256_linux_amd64="$_sha"
+  export _NAK_OS=linux
+  export _NAK_MACHINE=x86_64
+  unset NAK_BIN
+
+  export PATH="${_no_nak_linux}:/usr/bin:/bin"
+
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+  # curl must have been called with a URL containing linux-amd64
+  grep -q "linux-amd64" "$CURL_STUB_LOG"
+  grep -q "fiatjaf/nak/releases/download" "$CURL_STUB_LOG"
+}
+
+@test "buzz adapter: nak absent — provisioner targets darwin-arm64 URL when OS/arch overridden" {
+  # Verify that the download URL contains the correct OS/arch slug for darwin/arm64
+  _no_nak_darwin="${BATS_TEST_TMPDIR}/stubs-no-nak-darwin"
+  mkdir -p "$_no_nak_darwin"
+  for _f in "$STUBS_DIR"/*; do
+    _n="$(basename "$_f")"
+    [ "$_n" = "nak" ] && continue
+    ln -sf "$_f" "$_no_nak_darwin/$_n"
+  done
+
+  _content='#!/bin/sh'$'\n''exit 0'
+  if /usr/bin/sha256sum /dev/null >/dev/null 2>&1; then
+    _sha="$(printf '%s\n' "$_content" | /usr/bin/sha256sum | awk '{print $1}')"
+  else
+    _sha="$(printf '%s\n' "$_content" | /usr/bin/shasum -a 256 | awk '{print $1}')"
+  fi
+
+  export CURL_STUB_RESPONSE="$_content"
+  export NAK_SHA256_darwin_arm64="$_sha"
+  export _NAK_OS=darwin
+  export _NAK_MACHINE=arm64
+  unset NAK_BIN
+
+  export PATH="${_no_nak_darwin}:/usr/bin:/bin"
+
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_EVENT"
+  [ "$status" -eq 0 ]
+  # curl must have been called with a URL containing darwin-arm64
+  grep -q "darwin-arm64" "$CURL_STUB_LOG"
+  grep -q "fiatjaf/nak/releases/download" "$CURL_STUB_LOG"
+}
+
 @test "buzz adapter: exits 1 when nak returns failure" {
   echo "fail" > "$NAK_QUEUE"
 

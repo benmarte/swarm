@@ -93,8 +93,9 @@ _nak_ensure() {
   fi
 
   # 3. Auto-provision: detect OS / arch
-  _os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-  _machine="$(uname -m)"
+  # _NAK_OS and _NAK_MACHINE may be overridden in tests to target a specific platform.
+  _os="${_NAK_OS:-$(uname -s | tr '[:upper:]' '[:lower:]')}"
+  _machine="${_NAK_MACHINE:-$(uname -m)}"
   case "$_machine" in
     x86_64)  _arch="amd64" ;;
     aarch64|arm64) _arch="arm64" ;;
