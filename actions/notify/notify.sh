@@ -82,7 +82,7 @@ fi
 if [ -f "$_tmpl_file" ]; then
   _role="$(jq -r '.role // .event' "$EVENT_FILE")"
   _verdict="$(jq -r '.verdict // ""' "$EVENT_FILE")"
-  _evidence="$(jq -r 'if (.evidence // [] | length) > 0 then (.evidence | map("• " + .) | join("\n")) else "" end' "$EVENT_FILE")"
+  _evidence="$(jq -r 'if (.evidence // [] | length) > 0 then (.evidence | map("• " + (. | gsub("[\\n\\r]+"; " "))) | join("\n")) else "" end' "$EVENT_FILE")"
   _repo="$(jq -r '.repo' "$EVENT_FILE")"
   _issue="$(jq -r '.issue | tostring' "$EVENT_FILE")"
   _pr="$(jq -r 'if .pr != null then (.pr | tostring) else "" end' "$EVENT_FILE")"

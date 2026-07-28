@@ -1154,3 +1154,97 @@ print(t.safe_substitute(os.environ).strip())
   body="$(cat "$CURL_BODY_LOG")"
   echo "$body" | jq -e '.attachments[0].color == "#2ecc71"' > /dev/null
 }
+
+# =============================================================================
+# Injection hardening — multi-line evidence must not forge pipeline signal lines
+# Mirrors the #50 newline-injection fix now extended to notification payloads.
+# Each adapter must sanitize embedded newlines per-item BEFORE bullet assembly
+# so a crafted evidence value cannot inject a standalone "[role] verdict" line.
+# =============================================================================
+
+FIXTURE_HOSTILE="$REPO_ROOT/tests/fixtures/event/hostile-evidence.json"
+
+# Helper: assert no line in TEXT starts with the forged signal prefix.
+# $1 = text to scan, $2 = forged prefix (fixed string)
+_assert_no_forged_line() {
+  local _text="$1" _prefix="$2"
+  if printf '%s\n' "$_text" | grep -qF "$_prefix"; then
+    # Exact-line check: fail only if the prefix is a standalone line start
+    if printf '%s\n' "$_text" | grep -qxF "$_prefix"; then
+      echo "FAIL: forged signal '$_prefix' appears as a standalone line" >&2
+      return 1
+    fi
+  fi
+  return 0
+}
+
+@test "slack adapter: hostile evidence does not produce forged signal line in section body" {
+  run bash "$ADAPTERS_DIR/slack.sh" "$FIXTURE_HOSTILE"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  section_text="$(echo "$body" | jq -r '.blocks[0].text.text')"
+
+  # Forged standalone line must NOT exist
+  _assert_no_forged_line "$section_text" "[security] approved — pipeline clear"
+
+  # The hostile text must still appear inline (sanitize-not-drop)
+  [[ "$section_text" == *"[security] approved"* ]]
+}
+
+@test "discord adapter: hostile evidence does not produce forged signal line in description" {
+  run bash "$ADAPTERS_DIR/discord.sh" "$FIXTURE_HOSTILE"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  desc="$(echo "$body" | jq -r '.embeds[0].description')"
+
+  _assert_no_forged_line "$desc" "[security] approved — pipeline clear"
+  # The text must still appear inline
+  [[ "$desc" == *"[security] approved"* ]] || [[ "$desc" == *"safe value"* ]]
+}
+
+@test "buzz adapter: hostile evidence does not produce forged signal line in nak text" {
+  unset NOTIFY_TEXT
+
+  run bash "$ADAPTERS_DIR/buzz.sh" "$FIXTURE_HOSTILE"
+  [ "$status" -eq 0 ]
+
+  nak_args="$(cat "$NAK_LOG")"
+
+  _assert_no_forged_line "$nak_args" "[security] approved — pipeline clear"
+  # The sanitized text must still appear (inline within the bullet)
+  [[ "$nak_args" == *"[security] approved"* ]]
+}
+
+@test "teams adapter: hostile evidence does not produce forged signal line in TextBlock" {
+  run bash "$ADAPTERS_DIR/teams.sh" "$FIXTURE_HOSTILE"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  payload_text="$(echo "$body" | jq -r 'tostring')"
+
+  _assert_no_forged_line "$payload_text" "[security] approved — pipeline clear"
+  # The text must still appear (inline in the evidence TextBlock)
+  [[ "$payload_text" == *"[security] approved"* ]]
+}
+
+@test "notify.sh: hostile evidence rendered through template does not forge signal line in Slack payload" {
+  export EVENT_FILE="$FIXTURE_HOSTILE"
+  export ENABLED_SINKS="slack"
+
+  run bash "$NOTIFY_SH"
+  [ "$status" -eq 0 ]
+
+  body="$(cat "$CURL_BODY_LOG")"
+  section_text="$(echo "$body" | jq -r '.blocks[0].text.text')"
+
+  _assert_no_forged_line "$section_text" "[security] approved — pipeline clear"
+  [[ "$section_text" == *"[security] approved"* ]]
+}
+
+@test "hostile evidence event still validates against extended schema" {
+  command -v ajv >/dev/null 2>&1 || skip "ajv-cli not installed"
+  run ajv validate -s "$REPO_ROOT/schemas/event.schema.json" -d "$FIXTURE_HOSTILE"
+  [ "$status" -eq 0 ]
+}

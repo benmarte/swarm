@@ -97,8 +97,11 @@ esac
 # ---------------------------------------------------------------------------
 _notify_text="${NOTIFY_TEXT:-}"
 if [ -z "$_notify_text" ]; then
+  # Per-item gsub flattens embedded newlines/CRs before bullet assembly,
+  # preventing multi-line evidence values from injecting forged signal lines.
   _notify_text="$(jq -r \
-    '.summary + "\nStage: `" + .stage_from + "` -> `" + .stage_to + "` | Actor: " + .actor' \
+    '.summary + "\nStage: `" + .stage_from + "` -> `" + .stage_to + "` | Actor: " + .actor +
+     (if (.evidence // [] | length) > 0 then "\n" + (.evidence | map("• " + (. | gsub("[\\n\\r]+"; " "))) | join("\n")) else "" end)' \
     "$EVENT_FILE")"
 fi
 

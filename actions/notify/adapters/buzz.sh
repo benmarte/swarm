@@ -73,7 +73,7 @@ else
      (if .role then "**Role:** " + .role + (if .verdict then " | **Verdict:** " + .verdict else "" end) + "\n" else "" end) +
      "**Stage:** `" + .stage_from + "` -> `" + .stage_to + "`\n" +
      "**Actor:** " + .actor + "\n" +
-     (if (.evidence // [] | length) > 0 then (.evidence | map("• " + .) | join("\n")) + "\n" else "" end) +
+     (if (.evidence // [] | length) > 0 then (.evidence | map("• " + (. | gsub("[\\n\\r]+"; " "))) | join("\n")) + "\n" else "" end) +
      .summary + "\n" +
      .url' \
     "$EVENT_FILE")

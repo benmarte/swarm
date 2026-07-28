@@ -95,7 +95,7 @@ payload=$(jq -n \
             (if ($ev[0].evidence // [] | length) > 0 then
               [{
                 type: "TextBlock",
-                text: ($ev[0].evidence | map("• " + .) | join("\n")),
+                text: ($ev[0].evidence | map("• " + (. | gsub("[\\n\\r]+"; " "))) | join("\n")),
                 wrap: true
               }]
             else [] end) +
