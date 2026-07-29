@@ -396,8 +396,8 @@ _emit_to_capture() {
 
   body="$(cat "$CURL_BODY_LOG")"
   section_text="$(echo "$body" | jq -r '.blocks[0].text.text')"
-  [[ "$section_text" == *"approve"* ]]
-  [[ "$section_text" == *"all acceptance criteria met"* ]]
+  [[ "$section_text" == *"approve"* ]] || false
+  [[ "$section_text" == *"all acceptance criteria met"* ]] || false
   [[ "$section_text" == *"no security concerns"* ]]
 }
 
@@ -431,8 +431,8 @@ _emit_to_capture() {
 
   body="$(cat "$CURL_BODY_LOG")"
   section_text="$(echo "$body" | jq -r '.blocks[0].text.text')"
-  [[ "$section_text" == *"pass"* ]]
-  [[ "$section_text" == *"no secrets"* ]]
+  [[ "$section_text" == *"pass"* ]] || false
+  [[ "$section_text" == *"no secrets"* ]] || false
   [[ "$section_text" == *"dependency versions"* ]]
 }
 
@@ -457,7 +457,7 @@ PR #14 merged; all pipeline stages passed.
 
   body="$(cat "$CURL_BODY_LOG")"
   section_text="$(echo "$body" | jq -r '.blocks[0].text.text')"
-  [[ "$section_text" == *"reviewer approved"* ]]
+  [[ "$section_text" == *"reviewer approved"* ]] || false
   [[ "$section_text" == *"security signed off"* ]]
 }
 
@@ -487,7 +487,7 @@ PR #14 merged; all pipeline stages passed.
 
   body="$(cat "$CURL_BODY_LOG")"
   footer="$(echo "$body" | jq -r '.embeds[0].footer.text')"
-  [[ "$footer" == *"benmarte/swarm"* ]]
+  [[ "$footer" == *"benmarte/swarm"* ]] || false
   [[ "$footer" == *"reviewer"* ]]
 }
 
@@ -517,7 +517,7 @@ PR #14 merged; all pipeline stages passed.
 
   body="$(cat "$CURL_BODY_LOG")"
   payload_text="$(echo "$body" | jq -r 'tostring')"
-  [[ "$payload_text" == *"reviewer approved"* ]]
+  [[ "$payload_text" == *"reviewer approved"* ]] || false
   [[ "$payload_text" == *"security signed off"* ]]
 }
 
@@ -534,8 +534,8 @@ PR #14 merged; all pipeline stages passed.
   [ "$status" -eq 0 ]
 
   nak_args="$(cat "$NAK_LOG")"
-  [[ "$nak_args" == *"reviewer"* ]]
-  [[ "$nak_args" == *"approve"* ]]
+  [[ "$nak_args" == *"reviewer"* ]] || false
+  [[ "$nak_args" == *"approve"* ]] || false
   [[ "$nak_args" == *"all acceptance criteria met"* ]]
 }
 
@@ -547,7 +547,7 @@ PR #14 merged; all pipeline stages passed.
   [ "$status" -eq 0 ]
 
   nak_args="$(cat "$NAK_LOG")"
-  [[ "$nak_args" == *"security"* ]]
+  [[ "$nak_args" == *"security"* ]] || false
   [[ "$nak_args" == *"pass"* ]]
 }
 
@@ -560,7 +560,7 @@ PR #14 merged; all pipeline stages passed.
   [ "$status" -eq 0 ]
 
   nak_args="$(cat "$NAK_LOG")"
-  [[ "$nak_args" == *"reviewer approved"* ]]
+  [[ "$nak_args" == *"reviewer approved"* ]] || false
   [[ "$nak_args" == *"security signed off"* ]]
 }
 
@@ -571,8 +571,8 @@ PR #14 merged; all pipeline stages passed.
   [ "$status" -eq 0 ]
 
   nak_args="$(cat "$NAK_LOG")"
-  [[ "$nak_args" == *"reviewer"* ]]
-  [[ "$nak_args" == *"approve"* ]]
+  [[ "$nak_args" == *"reviewer"* ]] || false
+  [[ "$nak_args" == *"approve"* ]] || false
   [[ "$nak_args" == *"all acceptance criteria met"* ]]
 }
 

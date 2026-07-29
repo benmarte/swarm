@@ -148,7 +148,7 @@ teardown() {
   run bash "$BUMP_SH"
   [ "$status" -eq 0 ]
 
-  [[ "$output" == *"already at attempt limit"* ]]
+  [[ "$output" == *"already at attempt limit"* ]] || false
 
   # No label writes should happen
   ! grep -q "POST.*labels" "$GH_STUB_LOG" || true
@@ -213,7 +213,7 @@ teardown() {
 
   run bash "$BUMP_SH"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"positive integer"* ]] || [[ "${lines[*]}" == *"positive integer"* ]]
+  [[ "$output" == *"positive integer"* ]] || [[ "${lines[*]}" == *"positive integer"* ]] || false
 
   # No gh calls should have been made
   [ ! -s "$GH_STUB_LOG" ] || ! grep -q "^gh api" "$GH_STUB_LOG"
@@ -233,7 +233,7 @@ teardown() {
 
   run bash "$BUMP_SH"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"valid GitHub username"* ]] || [[ "${lines[*]}" == *"valid GitHub username"* ]]
+  [[ "$output" == *"valid GitHub username"* ]] || [[ "${lines[*]}" == *"valid GitHub username"* ]] || false
 
   # No gh calls should have been made
   [ ! -s "$GH_STUB_LOG" ] || ! grep -q "^gh api" "$GH_STUB_LOG"
