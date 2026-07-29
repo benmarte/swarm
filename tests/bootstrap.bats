@@ -196,8 +196,8 @@ teardown() {
     --dry-run
   [ "$status" -eq 0 ]
   # Ensure none of the fixture values appear in output
-  [[ "$output" != *"ghp_fake_github_token"* ]]
-  [[ "$output" != *"hooks.slack.com/services/FAKE"* ]]
+  [[ "$output" != *"ghp_fake_github_token"* ]] || false
+  [[ "$output" != *"hooks.slack.com/services/FAKE"* ]] || false
   [[ "$output" != *"fake-llm-api-key"* ]]
 }
 
@@ -216,18 +216,23 @@ teardown() {
 }
 
 @test "hostile-value: command substitution in a secret value is never executed" {
-  # Was `[[ "$output" != *"$(whoami)"* ]]`, which cannot hold: the expansion is
-  # a username that legitimately appears via the engine repo slug and in runner
-  # paths (whoami is "runner" on GitHub-hosted runners, paths /home/runner/...).
-  # It had been silenced with `|| true`. The fixture now carries a sentinel that
-  # can only appear if the value was actually executed.
+  # Was asserted as `[[ "$output" != *"$(whoami)"* ]]`, which could not work:
+  # the expansion of $(whoami) is a username that legitimately appears in the
+  # output via the engine repo slug and in runner paths (whoami is "runner" on
+  # GitHub-hosted runners, whose paths are /home/runner/...). The assertion was
+  # false in normal environments and had been silenced with `|| true`.
+  #
+  # The fixture now carries $(echo swarm_expanded_9c41f2). That string can only
+  # appear if the value was actually executed, so the assertion is both binding
+  # and environment-independent.
   run bash "$BOOTSTRAP_SH" \
     --env-file "$FIXTURES_DIR/hostile-value.env" \
     --repo testowner/testrepo \
     --reviewer stubuser \
     --dry-run
   [ "$status" -eq 0 ]
-  [[ "$output" != *"swarm_expanded_9c41f2"* ]]
+  # The sentinel appears only if the command substitution actually ran.
+  [[ "$output" != *"swarm_expanded_9c41f2"* ]] || false
   # The raw metacharacter sequence must not have been eval'd
   [[ "$output" != *"echo pwned"* ]] || [[ "$output" == *"echo pwned"* && "$output" != *"pwned
 "* ]]
@@ -363,8 +368,8 @@ teardown() {
     --reviewer stubuser
   [ "$status" -eq 0 ]
   # None of the fixture secret values may appear in stdout
-  [[ "$output" != *"ghp_fake_github_token_for_test"* ]]
-  [[ "$output" != *"sk-ant-fake-anthropic-key"* ]]
+  [[ "$output" != *"ghp_fake_github_token_for_test"* ]] || false
+  [[ "$output" != *"sk-ant-fake-anthropic-key"* ]] || false
   [[ "$output" != *"fake-llm-api-key"* ]]
 }
 
@@ -402,13 +407,13 @@ teardown() {
     --dry-run
   [ "$status" -eq 0 ]
   # Check that none of the fixture secret values leak
-  [[ "$output" != *"ghp_fake_github_token_for_test"* ]]
-  [[ "$output" != *"ghp_fake_swarm_token_for_test"* ]]
-  [[ "$output" != *"hooks.slack.com/services/FAKE/HOOK/VALUE"* ]]
-  [[ "$output" != *"discord.com/api/webhooks/FAKE"* ]]
-  [[ "$output" != *"wss://relay.fake.example.com"* ]]
-  [[ "$output" != *"nsec1fakekey1234567890abcdef"* ]]
-  [[ "$output" != *"sk-ant-fake-anthropic-key"* ]]
+  [[ "$output" != *"ghp_fake_github_token_for_test"* ]] || false
+  [[ "$output" != *"ghp_fake_swarm_token_for_test"* ]] || false
+  [[ "$output" != *"hooks.slack.com/services/FAKE/HOOK/VALUE"* ]] || false
+  [[ "$output" != *"discord.com/api/webhooks/FAKE"* ]] || false
+  [[ "$output" != *"wss://relay.fake.example.com"* ]] || false
+  [[ "$output" != *"nsec1fakekey1234567890abcdef"* ]] || false
+  [[ "$output" != *"sk-ant-fake-anthropic-key"* ]] || false
   [[ "$output" != *"fake-llm-api-key"* ]]
 }
 

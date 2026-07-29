@@ -68,7 +68,7 @@ teardown() {
 
   run bash "$AGENT_RUN_SH"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"invalid role"* ]] || [[ "$output" == *"super-dev"* ]]
+  [[ "$output" == *"invalid role"* ]] || [[ "$output" == *"super-dev"* ]] || false
 
   # claude stub must NOT have been called
   [ ! -s "$CLAUDE_STUB_LOG" ] || ! grep -q "^claude" "$CLAUDE_STUB_LOG"
@@ -79,7 +79,7 @@ teardown() {
 
   run bash "$AGENT_RUN_SH"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"invalid adapter"* ]] || [[ "$output" == *"gpt-turbo-wizard"* ]]
+  [[ "$output" == *"invalid adapter"* ]] || [[ "$output" == *"gpt-turbo-wizard"* ]] || false
 
   [ ! -s "$CLAUDE_STUB_LOG" ] || ! grep -q "^claude" "$CLAUDE_STUB_LOG"
 }
@@ -212,7 +212,7 @@ teardown() {
 
   run bash "$CLAUDE_ADAPTER"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"ANTHROPIC_API_KEY"* ]]
+  [[ "$output" == *"ANTHROPIC_API_KEY"* ]] || false
   [[ "$output" == *"CLAUDE_CODE_OAUTH_TOKEN"* ]]
 }
 
@@ -222,7 +222,7 @@ teardown() {
 
   run bash "$CLAUDE_ADAPTER"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"ANTHROPIC_API_KEY"* ]]
+  [[ "$output" == *"ANTHROPIC_API_KEY"* ]] || false
   [[ "$output" == *"CLAUDE_CODE_OAUTH_TOKEN"* ]]
 }
 
@@ -241,7 +241,7 @@ teardown() {
 
   run bash "$CLAUDE_ADAPTER"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"ANTHROPIC_API_KEY"* ]]
+  [[ "$output" == *"ANTHROPIC_API_KEY"* ]] || false
   [[ "$output" == *"CLAUDE_CODE_OAUTH_TOKEN"* ]]
 }
 
@@ -522,8 +522,8 @@ VALID_ENVELOPE='{"type":"result","subtype":"success","is_error":false,"result":"
   [ "$(grep -c 'Correction Required' "$CLAUDE_STUB_LOG")" -eq 1 ]
   # The validator's own message must survive into the hint — a generic
   # "try again" would name neither the field nor the expected type.
-  [[ "$log_content" == *"/notes"* ]]
-  [[ "$log_content" == *"must be string"* ]]
+  [[ "$log_content" == *"/notes"* ]] || false
+  [[ "$log_content" == *"must be string"* ]] || false
   # ajv schema-lint noise must NOT be forwarded: it is not actionable by the
   # model and it crowds out the real error under truncation.
   [[ "$log_content" != *"strict mode:"* ]]
@@ -540,7 +540,7 @@ VALID_ENVELOPE='{"type":"result","subtype":"success","is_error":false,"result":"
   rm -f "$CLAUDE_STUB_QUEUE"
 
   [ "$status" -eq 1 ]
-  [[ "$output" == *"still schema-invalid after 2 attempt(s)"* ]]
+  [[ "$output" == *"still schema-invalid after 2 attempt(s)"* ]] || false
   # The rejected outcome must not survive ANY exit path — a step running on
   # failure would otherwise read an invalid outcome.json as authoritative.
   [ ! -f "$GITHUB_WORKSPACE/outcome.json" ]
@@ -560,7 +560,7 @@ VALID_ENVELOPE='{"type":"result","subtype":"success","is_error":false,"result":"
   export SWARM_OUTCOME_ATTEMPTS="lots"
   run bash "$REPO_ROOT/actions/agent-run/agent-run.sh"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"SWARM_OUTCOME_ATTEMPTS must be a positive integer"* ]]
+  [[ "$output" == *"SWARM_OUTCOME_ATTEMPTS must be a positive integer"* ]] || false
   # Must fail before spending a model call
   [ ! -s "$CLAUDE_STUB_LOG" ]
 }

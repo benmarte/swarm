@@ -235,7 +235,7 @@ get_output() {
   if [ "$status" -eq 0 ]; then
     runner_label="$(get_output runner-label)"
     # Should be the literal string, not the expanded result
-    [[ "$runner_label" != "$(id -u)" ]] || [[ "$runner_label" = '$(id -u)' ]]
+    [[ "$runner_label" != "$(id -u)" ]] || [[ "$runner_label" = '$(id -u)' ]] || false
   fi
   # Exit status is acceptable either way (schema may reject due to type mismatch)
   true
