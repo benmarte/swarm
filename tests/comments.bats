@@ -272,7 +272,7 @@ teardown() {
 
   # No stray comment files in repo tree
   stray="$(find "$REPO_ROOT" -maxdepth 1 -name "*.md" \
-    ! -name "README.md" ! -name "SPEC.md" ! -name "CHANGELOG.md" 2>/dev/null || true)"
+    ! -name "README.md" ! -name "SPEC.md" ! -name "CHANGELOG.md" ! -name "CLAUDE.md" 2>/dev/null || true)"
   [ -z "$stray" ]
 }
 
