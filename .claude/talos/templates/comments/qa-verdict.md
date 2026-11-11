@@ -1,5 +1,0 @@
-${HEADER}
-
-**QA:** ${VERDICT} — ${SUMMARY}
-
-${DETAILS}
